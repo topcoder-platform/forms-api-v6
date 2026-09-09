@@ -1,9 +1,9 @@
 {
   "environment": "dev",
-  "tag": "dev-initial-20260909-01",
-  "runtimeImage": "811668436784.dkr.ecr.us-east-1.amazonaws.com/forms-api-v6@sha256:e4c94dedc340ed6667b2e3ee3b64cf336cfffa6e7a260c1e0d47eaca0a07a757",
-  "migrationImage": "811668436784.dkr.ecr.us-east-1.amazonaws.com/forms-api-v6@sha256:921a665ce8c3363c104c5f1f3b7c0943b740bc673a51b2fa904e4f9d4633a6b1",
-  "migrationTask": "arn:aws:ecs:us-east-1:811668436784:task/topcoder-infrastructure/1af28b4f13264afaa8e2c07da1209d82",
-  "taskDefinition": "arn:aws:ecs:us-east-1:811668436784:task-definition/forms-api-v6:2",
+  "tag": "dev-readiness-20260909-02",
+  "runtimeImage": "811668436784.dkr.ecr.us-east-1.amazonaws.com/forms-api-v6@sha256:04192358df6102cd8e0fb9ebc5de32ea76bd2a25dec9bb763ea48f5a7d2293ef",
+  "migrationImage": "811668436784.dkr.ecr.us-east-1.amazonaws.com/forms-api-v6@sha256:b855c4da457394fac04eaa2b20b0bb152373494821dc78838b5b5881332d7ed2",
+  "migrationTask": "arn:aws:ecs:us-east-1:811668436784:task/topcoder-infrastructure/502068940c584a4fbc1351310b2e9f60",
+  "taskDefinition": "arn:aws:ecs:us-east-1:811668436784:task-definition/forms-api-v6:3",
   "stack": "forms-api-v6-dev"
 }
