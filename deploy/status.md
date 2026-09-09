@@ -4,7 +4,7 @@
 
 - CloudFormation stack `forms-api-v6-dev` owns service `forms-api-v6` in cluster
   `topcoder-infrastructure` (AWS account `811668436784`, `us-east-1`).
-- The current service uses task definition `forms-api-v6:3`; ECS is healthy and
+- The current service uses task definition `forms-api-v6:4`; ECS is healthy and
   stable. `release-dev.json` records the exact runtime/migration image digests.
 - Gateway routes `/v6/forms` and `/v6/forms/{proxy+}` use the existing private
   services ALB and CloudFront origin authorizer. The protected root returns 401
@@ -12,6 +12,22 @@
 - Swagger UI is live at `https://api.topcoder-dev.com/v6/forms/api-docs` and its
   specification at `/v6/forms/api-docs-json`; browser rendering was verified.
 - `event_interest` version 1 matches `examples/event-interest.json`.
+- Dev now uses database `topcoder-services`, schema `forms`, and the supplied
+  `forms` login. Both encrypted database URL parameters are at version 2.
+- The original form, revision, four fields, three options, and one submission
+  (four answers and one selection) were copied with all values/IDs preserved.
+  `schema-migration-dev.json` records the comparison and rollback references.
+- Reporting is now `forms.event_interest_v1`. A fresh browser submission was
+  verified in this schema and removed; the original submission remains intact.
+- The old `forms` database is retained for recovery with runtime writes revoked.
+  Its migration files are archived unchanged in `prisma/legacy-migrations`.
+  Current releases use the new schema baseline and explicitly qualify all models,
+  raw SQL, enums, functions, and views with `forms`.
+- The migration rehearsal copied 45 forms, 49 revisions/views, and 33 submissions
+  in a disposable database with full contents matching. Schema integration tests
+  also passed with no CREATE privileges in `public` or at database level, leaving
+  an existing `public."Form"` sentinel untouched. Both GitHub checks for code commit
+  `580fdef` passed.
 - `https://www.topcoder-dev.com/forms-test` is live. A real browser submitted all
   four fields successfully (HTTP 201); the database row matched all answers,
   including boolean false and all three interests. Synthetic data was deleted.

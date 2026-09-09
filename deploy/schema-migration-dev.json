@@ -1,0 +1,74 @@
+{
+  "tables": {
+    "Form": {
+      "rows": 1,
+      "contentsMatch": true
+    },
+    "FormVersion": {
+      "rows": 1,
+      "contentsMatch": true
+    },
+    "FormField": {
+      "rows": 4,
+      "contentsMatch": true
+    },
+    "FieldOption": {
+      "rows": 3,
+      "contentsMatch": true
+    },
+    "Submission": {
+      "rows": 1,
+      "contentsMatch": true
+    },
+    "Answer": {
+      "rows": 4,
+      "contentsMatch": true
+    },
+    "AnswerSelection": {
+      "rows": 1,
+      "contentsMatch": true
+    }
+  },
+  "views": {
+    "event_interest_v1": {
+      "rows": 1,
+      "contentsMatch": true
+    }
+  },
+  "sourceDatabase": "forms",
+  "targetDatabase": "topcoder-services",
+  "targetSchema": "forms",
+  "sourceRuntimeWritesRevoked": true,
+  "sourceParameterVersions": {
+    "DATABASE_URL": 1,
+    "MIGRATION_DATABASE_URL": 1
+  },
+  "previousImageTag": "dev-readiness-20260909-02",
+  "previousDesiredCount": "1",
+  "verifiedAt": "2026-09-09T04:22:33.703181+00:00",
+  "liveVerification": {
+    "database": "topcoder-services",
+    "schema": "forms",
+    "user": "forms",
+    "persistedAnswers": {
+      "rowExists": true,
+      "emailMatches": true,
+      "nameMatches": true,
+      "interestsMatch": true,
+      "updatesFalse": true,
+      "sourcePageMatches": true
+    },
+    "syntheticSubmissionDeleted": true,
+    "sourceRowsPreserved": {
+      "Form": true,
+      "FormVersion": true,
+      "FormField": true,
+      "FieldOption": true,
+      "Submission": true,
+      "Answer": true,
+      "AnswerSelection": true
+    },
+    "currentSubmissions": 1
+  },
+  "codeCommit": "580fdefcb5019df6c2d6799aa324ef4b63148d97"
+}
