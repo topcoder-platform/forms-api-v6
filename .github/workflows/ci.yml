@@ -1,0 +1,41 @@
+name: Forms API checks
+on: [push, pull_request]
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: forms
+          POSTGRES_PASSWORD: forms_ci
+          POSTGRES_DB: forms_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U forms -d forms_test"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://forms:forms_ci@localhost:5432/forms_test
+      TEST_DATABASE_URL: postgresql://forms:forms_ci@localhost:5432/forms_test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select project Node and install pnpm
+        shell: bash
+        run: |
+          source "$NVM_DIR/nvm.sh"
+          nvm install
+          nvm use
+          npm install --global pnpm@11.21.0
+      - name: Install, lint, build, and test
+        shell: bash
+        run: |
+          source "$NVM_DIR/nvm.sh"
+          nvm use
+          pnpm install --frozen-lockfile
+          pnpm prisma:validate
+          pnpm lint
+          pnpm build
+          pnpm typecheck
+          pnpm test
+          pnpm migrate:deploy
+          pnpm test:integration

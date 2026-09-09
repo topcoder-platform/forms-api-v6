@@ -1,0 +1,158 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum FieldType {
+  TEXT
+  TEXTAREA
+  EMAIL
+  INTEGER
+  DECIMAL
+  BOOLEAN
+  DATE
+  SINGLE_SELECT
+  MULTI_SELECT
+}
+
+enum FormStatus {
+  DRAFT
+  PUBLISHED
+  RETIRED
+}
+
+enum FormAccess {
+  ANONYMOUS
+  MEMBER
+}
+
+/// Stable, specifically named form identity. Versions carry the immutable definition.
+model Form {
+  id        String        @id @default(uuid()) @db.Uuid
+  key       String        @unique @db.VarChar(40)
+  createdAt DateTime      @default(now()) @db.Timestamptz(3)
+  versions  FormVersion[]
+}
+
+/// One immutable schema revision; publishing creates its named reporting view.
+model FormVersion {
+  id             String       @id @default(uuid()) @db.Uuid
+  formId         String       @db.Uuid
+  version        Int
+  title          String       @db.VarChar(200)
+  description    String?      @db.VarChar(2000)
+  successMessage String       @db.VarChar(1000)
+  access         FormAccess   @default(ANONYMOUS)
+  status         FormStatus   @default(DRAFT)
+  definitionHash String       @db.Char(64)
+  createdBy      String       @db.VarChar(200)
+  publishedBy    String?      @db.VarChar(200)
+  retiredBy      String?      @db.VarChar(200)
+  createdAt      DateTime     @default(now()) @db.Timestamptz(3)
+  publishedAt    DateTime?    @db.Timestamptz(3)
+  retiredAt      DateTime?    @db.Timestamptz(3)
+  form           Form         @relation(fields: [formId], references: [id], onDelete: Restrict)
+  fields         FormField[]
+  submissions    Submission[]
+
+  @@unique([formId, version])
+}
+
+/// A named, typed field owned by exactly one form version, including validation rules.
+model FormField {
+  id        String        @id @default(uuid()) @db.Uuid
+  versionId String        @db.Uuid
+  key       String        @db.VarChar(40)
+  label     String        @db.VarChar(200)
+  helpText  String?       @db.VarChar(1000)
+  type      FieldType
+  required  Boolean       @default(false)
+  position  Int
+  maxLength Int?
+  minValue  Decimal?      @db.Decimal(20, 6)
+  maxValue  Decimal?      @db.Decimal(20, 6)
+  version   FormVersion   @relation(fields: [versionId], references: [id], onDelete: Restrict)
+  options   FieldOption[]
+  answers   Answer[]
+
+  @@unique([versionId, key])
+  @@unique([versionId, position])
+  @@unique([id, versionId, type])
+  @@unique([id, versionId])
+}
+
+/// Allowlisted choice values; keys are stable reporting values and labels are display copy.
+model FieldOption {
+  id         String            @id @default(uuid()) @db.Uuid
+  fieldId    String            @db.Uuid
+  versionId  String            @db.Uuid
+  key        String            @db.VarChar(40)
+  label      String            @db.VarChar(200)
+  position   Int
+  field      FormField         @relation(fields: [fieldId, versionId], references: [id, versionId], onDelete: Restrict)
+  answers    Answer[]
+  selections AnswerSelection[]
+
+  @@unique([fieldId, key])
+  @@unique([fieldId, position])
+  @@unique([id, fieldId, versionId])
+}
+
+/// Submission envelope. Identity is taken from verified JWT claims, never submitted answers.
+model Submission {
+  id             String      @id @default(uuid()) @db.Uuid
+  versionId      String      @db.Uuid
+  idempotencyKey String      @db.Uuid
+  requestHash    String      @db.Char(64)
+  memberId       String?     @db.VarChar(200)
+  sourcePage     String?     @db.VarChar(1000)
+  createdAt      DateTime    @default(now()) @db.Timestamptz(3)
+  version        FormVersion @relation(fields: [versionId], references: [id], onDelete: Restrict)
+  answers        Answer[]
+
+  @@unique([versionId, idempotencyKey])
+  @@unique([id, versionId])
+  @@index([versionId, createdAt, id])
+}
+
+/// Typed scalar answer. SQL CHECKs and composite foreign keys enforce type and ownership.
+model Answer {
+  id           String            @id @default(uuid()) @db.Uuid
+  submissionId String            @db.Uuid
+  versionId    String            @db.Uuid
+  fieldId      String            @db.Uuid
+  type         FieldType
+  textValue    String?           @db.VarChar(10000)
+  integerValue Int?
+  decimalValue Decimal?          @db.Decimal(20, 6)
+  booleanValue Boolean?
+  dateValue    DateTime?         @db.Date
+  optionId     String?           @db.Uuid
+  submission   Submission        @relation(fields: [submissionId, versionId], references: [id, versionId], onDelete: Cascade)
+  field        FormField         @relation(fields: [fieldId, versionId, type], references: [id, versionId, type], onDelete: Restrict)
+  option       FieldOption?      @relation(fields: [optionId, fieldId, versionId], references: [id, fieldId, versionId], onDelete: Restrict)
+  selections   AnswerSelection[]
+
+  @@unique([submissionId, fieldId])
+  @@unique([id, fieldId, versionId, type])
+  @@index([fieldId])
+}
+
+/// Multi-select choices are individual relational rows, never JSON or delimiter-encoded text.
+model AnswerSelection {
+  answerId  String      @db.Uuid
+  fieldId   String      @db.Uuid
+  versionId String      @db.Uuid
+  type      FieldType   @default(MULTI_SELECT)
+  optionId  String      @db.Uuid
+  answer    Answer      @relation(fields: [answerId, fieldId, versionId, type], references: [id, fieldId, versionId, type], onDelete: Cascade)
+  option    FieldOption @relation(fields: [optionId, fieldId, versionId], references: [id, fieldId, versionId], onDelete: Restrict)
+
+  @@id([answerId, optionId])
+  @@index([optionId])
+}

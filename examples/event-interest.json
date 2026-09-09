@@ -1,0 +1,39 @@
+{
+  "title": "Topcoder event interest",
+  "description": "Tell us which events interest you.",
+  "successMessage": "Thank you. Your interest has been recorded.",
+  "access": "ANONYMOUS",
+  "fields": [
+    {
+      "key": "email",
+      "label": "Email address",
+      "type": "EMAIL",
+      "required": true,
+      "maxLength": 254
+    },
+    {
+      "key": "full_name",
+      "label": "Full name",
+      "type": "TEXT",
+      "required": true,
+      "maxLength": 100
+    },
+    {
+      "key": "interests",
+      "label": "Areas of interest",
+      "type": "MULTI_SELECT",
+      "required": true,
+      "options": [
+        { "key": "design", "label": "Design" },
+        { "key": "development", "label": "Development" },
+        { "key": "data_science", "label": "Data science" }
+      ]
+    },
+    {
+      "key": "receive_updates",
+      "label": "Would you like event updates?",
+      "type": "BOOLEAN",
+      "required": true
+    }
+  ]
+}

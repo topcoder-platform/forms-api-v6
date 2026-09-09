@@ -1,0 +1,42 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: forms
+      POSTGRES_PASSWORD: forms_local
+      POSTGRES_DB: forms
+    ports:
+      - '127.0.0.1:${FORMS_DATABASE_PORT:-5546}:5432'
+    volumes:
+      - forms_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U forms -d forms']
+      interval: 2s
+      timeout: 3s
+      retries: 20
+  migrate:
+    build:
+      context: .
+      target: migrate
+    environment:
+      DATABASE_URL: postgresql://forms:forms_local@postgres:5432/forms
+    depends_on:
+      postgres:
+        condition: service_healthy
+  api:
+    build:
+      context: .
+      target: runtime
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://forms:forms_local@postgres:5432/forms
+      PORT: 3000
+    ports:
+      - '127.0.0.1:${FORMS_HTTP_PORT:-3006}:3000'
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+volumes:
+  forms_data:
