@@ -1,0 +1,281 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Forms API v6 private Fargate service and shared API Gateway routes.
+Parameters:
+  BootstrapOnly:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: Create isolated resources before attaching shared API routes and ECS service.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, production]
+  ClusterName:
+    Type: String
+    Default: topcoder-infrastructure
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Default: vpc-e8f0458d
+  PrivateSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Default: subnet-1c8f9b34,subnet-3a498a05
+  AlbSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Default: sg-dbd3d3ad
+  DatabaseSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Default: sg-c31b46a6
+  HttpsListenerArn:
+    Type: String
+    Default: arn:aws:elasticloadbalancing:us-east-1:811668436784:listener/app/services-alb/58c1445f76a32e27/eb5a28a369a58f3f
+  ListenerRulePriority:
+    Type: Number
+    Default: 680
+    MinValue: 1
+    MaxValue: 50000
+  ApiId:
+    Type: String
+    Default: oid1rrke97
+  ApiIntegrationId:
+    Type: String
+    Default: m2z44f7
+  ApiOriginAuthorizerId:
+    Type: String
+    Default: 7vxb0b
+    Description: Preserves shared CloudFront origin enforcement, including public token routes.
+  ImageTag:
+    Type: String
+    Default: bootstrap
+  DesiredCount:
+    Type: Number
+    Default: 0
+    MinValue: 0
+    MaxValue: 10
+    Description: Bootstrap at zero; deploy after database migration succeeds.
+  CorsOrigins:
+    Type: String
+    Default: https://www.topcoder-dev.com
+  ParameterPrefix:
+    Type: String
+    Default: /config/forms-api-v6/appvar
+  SecretsKmsKeyArn:
+    Type: String
+    Default: ''
+    Description: Optional customer-managed SSM encryption key; omit for alias/aws/ssm.
+Conditions:
+  IsDev: !Equals [!Ref Environment, dev]
+  AttachIngress: !Equals [!Ref BootstrapOnly, 'false']
+  HasSecretsKmsKey: !Not [!Equals [!Ref SecretsKmsKeyArn, '']]
+Resources:
+  Repository:
+    Type: AWS::ECR::Repository
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      RepositoryName: forms-api-v6
+      ImageTagMutability: IMMUTABLE
+      EncryptionConfiguration: {EncryptionType: AES256}
+      ImageScanningConfiguration: {ScanOnPush: true}
+      LifecyclePolicy:
+        LifecyclePolicyText: '{"rules":[{"rulePriority":1,"description":"Retain latest 30 untagged images","selection":{"tagStatus":"untagged","countType":"imageCountMoreThan","countNumber":30},"action":{"type":"expire"}}]}'
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub /aws/ecs/forms-api-v6-${Environment}
+      RetentionInDays: 30
+  TaskSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Forms API accepts traffic only from the internal services ALB.
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          SourceSecurityGroupId: !Ref AlbSecurityGroupId
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: ECR SSM CloudWatch and Auth0 through private subnet egress.
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          DestinationSecurityGroupId: !Ref DatabaseSecurityGroupId
+  DatabaseIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref DatabaseSecurityGroupId
+      IpProtocol: tcp
+      FromPort: 5432
+      ToPort: 5432
+      SourceSecurityGroupId: !Ref TaskSecurityGroup
+      Description: Dedicated forms database access.
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: ecs-tasks.amazonaws.com}
+            Action: sts:AssumeRole
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: ecs-tasks.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: forms-image-logs-and-config
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: '*'
+              - Effect: Allow
+                Action: [ecr:BatchCheckLayerAvailability, ecr:GetDownloadUrlForLayer, ecr:BatchGetImage]
+                Resource: !GetAtt Repository.Arn
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !GetAtt LogGroup.Arn
+              - Effect: Allow
+                Action: ssm:GetParameters
+                Resource:
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${ParameterPrefix}/*
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/config/common/global-appvar/AUTH_SECRET
+              - !If
+                - HasSecretsKmsKey
+                - Effect: Allow
+                  Action: kms:Decrypt
+                  Resource: !Ref SecretsKmsKeyArn
+                - !Ref AWS::NoValue
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub forms-api-v6-${Environment}
+      VpcId: !Ref VpcId
+      TargetType: ip
+      Port: 3000
+      Protocol: HTTP
+      HealthCheckPath: /v6/forms/health/ready
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      Matcher: {HttpCode: '200'}
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: '60'
+  ListenerRule:
+    Condition: AttachIngress
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref HttpsListenerArn
+      Priority: !Ref ListenerRulePriority
+      Conditions:
+        - Field: path-pattern
+          PathPatternConfig:
+            Values: [/v6/forms, /v6/forms/*]
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+  ApiRootRoute:
+    Condition: AttachIngress
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ApiId
+      RouteKey: ANY /v6/forms
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref ApiOriginAuthorizerId
+      Target: !Sub integrations/${ApiIntegrationId}
+  ApiProxyRoute:
+    Condition: AttachIngress
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ApiId
+      RouteKey: ANY /v6/forms/{proxy+}
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref ApiOriginAuthorizerId
+      Target: !Sub integrations/${ApiIntegrationId}
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: forms-api-v6
+      Cpu: '512'
+      Memory: '1024'
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      ExecutionRoleArn: !GetAtt ExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      RuntimePlatform: {CpuArchitecture: X86_64, OperatingSystemFamily: LINUX}
+      ContainerDefinitions:
+        - Name: forms-api-v6
+          Image: !Sub ${Repository.RepositoryUri}:${ImageTag}
+          Essential: true
+          ReadonlyRootFilesystem: true
+          StopTimeout: 120
+          PortMappings: [{ContainerPort: 3000, Protocol: tcp}]
+          Environment:
+            - {Name: NODE_ENV, Value: production}
+            - {Name: PORT, Value: '3000'}
+            - {Name: AWS_REGION, Value: !Ref 'AWS::Region'}
+            - {Name: AUTH_MODE, Value: hs256}
+            - {Name: CORS_ORIGINS, Value: !Ref CorsOrigins}
+            - {Name: TRUST_PROXY_CIDRS, Value: '10.0.0.0/8'}
+          Secrets:
+            - {Name: DATABASE_URL, ValueFrom: !Sub '${ParameterPrefix}/DATABASE_URL'}
+            - {Name: AUTH_SECRET, ValueFrom: /config/common/global-appvar/AUTH_SECRET}
+            - {Name: VALID_ISSUERS, ValueFrom: !Sub '${ParameterPrefix}/VALID_ISSUERS'}
+            - {Name: AUTH_AUDIENCE, ValueFrom: !Sub '${ParameterPrefix}/AUTH_AUDIENCE'}
+          HealthCheck:
+            Command: [CMD-SHELL, 'node -e "fetch(\"http://127.0.0.1:3000/v6/forms/health/ready\").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"']
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 30
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: forms
+  Service:
+    Condition: AttachIngress
+    Type: AWS::ECS::Service
+    DependsOn: [ListenerRule, DatabaseIngress]
+    Properties:
+      ServiceName: forms-api-v6
+      Cluster: !Ref ClusterName
+      TaskDefinition: !Ref TaskDefinition
+      LaunchType: FARGATE
+      PlatformVersion: '1.4.0'
+      DesiredCount: !Ref DesiredCount
+      HealthCheckGracePeriodSeconds: 90
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 100
+        MaximumPercent: 200
+        DeploymentCircuitBreaker: {Enable: true, Rollback: true}
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets: !Ref PrivateSubnetIds
+          SecurityGroups: [!Ref TaskSecurityGroup]
+      LoadBalancers:
+        - TargetGroupArn: !Ref TargetGroup
+          ContainerName: forms-api-v6
+          ContainerPort: 3000
+Outputs:
+  RepositoryUri: {Value: !GetAtt Repository.RepositoryUri}
+  ServiceName: {Condition: AttachIngress, Value: !GetAtt Service.Name}
+  TaskDefinitionArn: {Value: !Ref TaskDefinition}
+  TaskSecurityGroupId: {Value: !Ref TaskSecurityGroup}
+  TargetGroupArn: {Value: !Ref TargetGroup}
+  ApiUrl:
+    Value: !If [IsDev, 'https://api.topcoder-dev.com/v6/forms', 'https://api.topcoder.com/v6/forms']

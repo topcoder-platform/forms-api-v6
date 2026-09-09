@@ -1,6 +1,6 @@
 # API contract
 
-Base prefix: `/v6`. OpenAPI UI: `/v6/docs`; specification: `/v6/docs-json`.
+Base prefix: `/v6`. OpenAPI UI: `/v6/forms/api-docs`; specification: `/v6/forms/api-docs-json`. The local `/v6/docs` and `/v6/docs-json` aliases remain available. Readiness is `/v6/forms/health/ready` (also `/v6/health/ready` locally).
 
 ## Endpoints
 

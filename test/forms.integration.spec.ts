@@ -70,6 +70,19 @@ describe('forms API with real PostgreSQL', () => {
     await request(app.getHttpServer()).get('/v6/health').expect(200);
     await request(app.getHttpServer()).get('/v6/health/ready').expect(200);
     await request(app.getHttpServer()).get('/v6/docs-json').expect(200);
+    await request(app.getHttpServer()).get('/v6/forms/health').expect(200);
+    await request(app.getHttpServer()).get('/v6/forms/health/ready').expect(200);
+    const docs = await request(app.getHttpServer())
+      .get('/v6/forms/api-docs')
+      .expect(200);
+    expect(docs.text).toContain('swagger-ui');
+    await request(app.getHttpServer())
+      .get('/v6/forms/api-docs/swagger-ui-init.js')
+      .expect(200);
+    const spec = await request(app.getHttpServer())
+      .get('/v6/forms/api-docs-json')
+      .expect(200);
+    expect(spec.body.paths['/v6/forms/{key}/submissions']).toBeDefined();
     const allowed = await request(app.getHttpServer())
       .options('/v6/forms/a/submissions')
       .set('Origin', 'https://www.topcoder.com')

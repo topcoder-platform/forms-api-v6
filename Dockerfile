@@ -2,6 +2,8 @@ FROM node:26.8.1-bookworm-slim AS base
 RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 RUN npm install --global pnpm@11.21.0
 WORKDIR /app
+COPY deploy/certs/us-east-1-bundle.pem /app/deploy/certs/us-east-1-bundle.pem
+ENV NODE_EXTRA_CA_CERTS=/app/deploy/certs/us-east-1-bundle.pem
 
 FROM base AS dependencies
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./

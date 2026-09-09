@@ -22,7 +22,7 @@ export class AppModule {
       imports: [
         ThrottlerModule.forRoot([{ ttl: 60000, limit: config.throttleLimit }]),
       ],
-      controllers: [FormsController, HealthController],
+      controllers: [HealthController, FormsController],
       providers: [
         { provide: CONFIG, useValue: config },
         DbService,

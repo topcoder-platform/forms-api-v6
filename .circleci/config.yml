@@ -1,0 +1,115 @@
+version: 2.1
+
+executors:
+  node-postgres:
+    docker:
+      - image: cimg/python:3.13.2
+      - image: postgres:17-alpine
+        environment:
+          POSTGRES_USER: forms
+          POSTGRES_PASSWORD: forms_ci
+          POSTGRES_DB: forms_test
+    resource_class: medium
+
+commands:
+  install:
+    steps:
+      - run:
+          name: Install pinned Node and pnpm
+          command: |
+            export NVM_DIR=/home/circleci/.nvm
+            git clone --quiet --depth 1 --branch v0.40.3 https://github.com/nvm-sh/nvm.git "$NVM_DIR"
+            test "$(git -C "$NVM_DIR" rev-parse HEAD)" = 977563e97ddc66facf3a8e31c6cff01d236f09bd
+            . "$NVM_DIR/nvm.sh" --no-use
+            nvm install
+            nvm use
+            npm install --global pnpm@11.21.0
+            pnpm install --frozen-lockfile
+            pip install boto3 awscli
+            echo 'export NVM_DIR=/home/circleci/.nvm' >> "$BASH_ENV"
+            echo '. "$NVM_DIR/nvm.sh" --no-use' >> "$BASH_ENV"
+            echo 'nvm use' >> "$BASH_ENV"
+
+jobs:
+  verify:
+    executor: node-postgres
+    environment:
+      DATABASE_URL: postgresql://forms:forms_ci@localhost:5432/forms_test
+      TEST_DATABASE_URL: postgresql://forms:forms_ci@localhost:5432/forms_test
+    steps:
+      - checkout
+      - install
+      - run:
+          name: Lint, build, and verify with PostgreSQL
+          command: |
+            pnpm lint
+            pnpm build
+            pnpm typecheck
+            pnpm test
+            pnpm migrate:deploy
+            pnpm test:integration
+            python3 -m py_compile deploy/bootstrap-dev.py deploy/release.py
+
+  deploy:
+    executor: node-postgres
+    parameters:
+      deploy_env:
+        type: enum
+        enum: [DEV, PROD]
+      environment:
+        type: enum
+        enum: [dev, production]
+    environment:
+      AWS_REGION: us-east-1
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_STS_REGIONAL_ENDPOINTS: regional
+      APPNAME: forms-api-v6
+    steps:
+      - checkout
+      - install
+      - setup_remote_docker
+      - run:
+          name: Build runtime and one-shot migration images
+          command: |
+            docker build --target migrate -t forms-api-v6:migrate-candidate .
+            docker build --target runtime -t forms-api-v6:candidate .
+      - run:
+          name: Authenticate, migrate, and deploy through CloudFormation
+          no_output_timeout: 35m
+          command: |
+            git clone --quiet --depth 1 --branch v1.4.20 https://github.com/topcoder-platform/tc-deploy-scripts ../buildscript
+            test "$(git -C ../buildscript rev-parse HEAD)" = 5f3745c35463ce0e2475c12269aa7a2b446456e5
+            cp ../buildscript/awsconfiguration.sh .
+            ./awsconfiguration.sh << parameters.deploy_env >>
+            set +x
+            source awsenvconf
+            rm -f awsenvconf awsconfiguration.sh
+            python3 -u deploy/release.py << parameters.environment >> "<< parameters.environment >>-${CIRCLE_SHA1}-${CIRCLE_BUILD_NUM}"
+      - store_artifacts:
+          path: deploy/release-<< parameters.environment >>.json
+          destination: release
+
+workflows:
+  verify-and-deploy:
+    jobs:
+      - verify
+      - deploy:
+          name: deploy-dev
+          context: org-global
+          deploy_env: DEV
+          environment: dev
+          serial-group: << pipeline.project.slug >>/deploy-dev
+          requires: [verify]
+          filters:
+            branches:
+              only: develop
+      - deploy:
+          name: deploy-production
+          context: org-global
+          deploy_env: PROD
+          environment: production
+          serial-group: << pipeline.project.slug >>/deploy-production
+          requires: [verify]
+          filters:
+            branches:
+              only: master

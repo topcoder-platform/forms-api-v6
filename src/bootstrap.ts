@@ -109,6 +109,9 @@ export async function createApp(
       .addBearerAuth()
       .build(),
   );
+  SwaggerModule.setup('v6/forms/api-docs', app, document, {
+    jsonDocumentUrl: 'v6/forms/api-docs-json',
+  });
   SwaggerModule.setup('v6/docs', app, document);
   app.enableShutdownHooks();
   await app.init();

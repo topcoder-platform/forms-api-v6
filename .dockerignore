@@ -6,3 +6,7 @@ coverage
 .env.*
 src/generated
 *.tsbuildinfo
+
+__pycache__
+*.pyc
+deploy/release-*.json

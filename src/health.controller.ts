@@ -4,7 +4,7 @@ import { Access } from './auth';
 import { DbService } from './db.service';
 
 /** Supplies unauthenticated liveness and database readiness checks for deployment probes. */
-@Controller('health')
+@Controller(['health', 'forms/health'])
 @Access('public')
 @SkipThrottle()
 export class HealthController {

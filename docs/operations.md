@@ -63,7 +63,7 @@ docker compose up -d --no-build
 
 This is a build-network workaround; the running API and database still use the normal Compose network. The final local verification used it after a bridge DNS failure during a rebuild.
 
-Use `/v6/health` for liveness and `/v6/health/ready` for readiness. SIGTERM closes the Nest application and PostgreSQL pool. Runtime startup validates authentication settings and connects to the database before listening. Swagger is available without authentication and contains schemas, not submission data.
+Use `/v6/forms/health` for liveness and `/v6/forms/health/ready` for readiness through the shared API Gateway. The original `/v6/health` routes remain available locally. See [ECS and CircleCI deployment](../deploy/README.md) for infrastructure, migrations, release commands, and environment configuration. SIGTERM closes the Nest application and PostgreSQL pool. Runtime startup validates authentication settings and connects to the database before listening. Swagger is available without authentication and contains schemas, not submission data.
 
 The built-in rate limiter is in memory, per handler and replica. Keep the existing ingress/shared abuse controls in place when running multiple replicas. Trust forwarded client addresses only from configured ingress proxy networks. CORS is browser policy, not authentication; anonymous forms intentionally accept unauthenticated non-browser clients too.
 

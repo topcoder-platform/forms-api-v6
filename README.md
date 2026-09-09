@@ -34,7 +34,7 @@ cp .env.example .env
 docker compose up --build -d
 ```
 
-API: `http://localhost:3006/v6/forms`. OpenAPI UI: `http://localhost:3006/v6/docs`. Readiness: `http://localhost:3006/v6/health/ready`.
+API: `http://localhost:3006/v6/forms`. OpenAPI UI: `http://localhost:3006/v6/forms/api-docs`. Readiness: `http://localhost:3006/v6/forms/health/ready`.
 
 Compose runs migrations as a separate job before starting the non-root API container. Its credentials and localhost bindings are for development. `FORMS_HTTP_PORT` and `FORMS_DATABASE_PORT` change host ports.
 
