@@ -22,7 +22,9 @@
   release were fixed with sharp 0.35.4 and js-yaml 4.3.2.
 - Website renderer commit `df2dd13` deployed successfully in CircleCI job 413.
   Follow-up commit `a54e6ca` documents and rebuilds the final CMS content graph;
-  its build job 416 passed and deploy job 418 was still running at this checkpoint.
+  build job 416 and deploy job 418 both passed. The live deployment marker matches
+  `a54e6ca7eaed06340a6eaf6d0fc4b5ae170284af-418`. A fresh browser submission
+  against this release passed, its database answers matched, and it was deleted.
 - API code is in private `topcoder-platform/forms-api-v6`, with `origin` pointing
   there and the original `jmgasper/forms-api-v6` remote retained as `personal`.
   Both `develop` and `master` contain the CircleCI flow. `develop` is the default.
@@ -40,9 +42,9 @@
    then verify the `master` deployment flow with valid production access.
    `/home/jmgasper/Downloads/prod_env.txt` was rejected by AWS and the default AWS
    login session is expired. Dev credentials are valid. Both access requests were
-   sent to the user; there has been no response at this checkpoint.
-3. Observe website deploy 418 to completion and repeat the browser check against
-   its final exported CMS graph.
+   sent to the user; there has been no response at this checkpoint. Access was
+   checked again after the final website deployment: CircleCI still reports
+   `auth.token_missing`, and production STS still returns `InvalidClientTokenId`.
 
 The overall goal is **not complete**. Do not infer CircleCI activation or production
 readiness from the checked-in workflow or successful dev workstation deployment.
