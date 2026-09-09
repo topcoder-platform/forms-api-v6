@@ -27,12 +27,13 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (
     !['postgres:', 'postgresql:'].includes(database.protocol) ||
     (database.searchParams.has('schema') &&
-      database.searchParams.get('schema') !== 'public')
+      database.searchParams.get('schema') !== 'forms')
   ) {
     throw new Error(
-      'DATABASE_URL must be PostgreSQL using the public schema in a dedicated database.',
+      'DATABASE_URL must be PostgreSQL using the forms schema.',
     );
   }
+  database.searchParams.set('schema', 'forms');
   const authMode = env.AUTH_MODE ?? 'jwks';
   if (authMode !== 'hs256' && authMode !== 'jwks')
     throw new Error('AUTH_MODE must be jwks or hs256.');
@@ -60,7 +61,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (!issuers.length)
     throw new Error('VALID_ISSUERS must contain at least one issuer.');
   return {
-    databaseUrl,
+    databaseUrl: database.toString(),
     port: integerSetting(env.PORT ?? '3000', 1, 65535),
     origins,
     authMode,

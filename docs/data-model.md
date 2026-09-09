@@ -59,7 +59,7 @@ API form registration and revisions are serialized on the stable form row. Publi
 
 ## Versioned views
 
-Publishing `event_interest` version 1 creates `forms_reporting.event_interest_v1` in the same transaction as the publication status change. If view creation fails, publication and retirement of the previous version roll back.
+Publishing `event_interest` version 1 creates `forms.event_interest_v1` in the same transaction as the publication status change. If view creation fails, publication and retirement of the previous version roll back.
 
 View metadata columns are reserved and cannot be used as field keys:
 
@@ -77,21 +77,21 @@ Every remaining column has the field's name and real SQL type. Missing optional 
 -- One row per submitted form, including exact named columns.
 SELECT submission_id, submitted_at, email, full_name,
        interests, receive_updates
-FROM forms_reporting.event_interest_v1
+FROM forms.event_interest_v1
 WHERE submitted_at >= TIMESTAMPTZ '2026-09-01 00:00:00+00';
 
 -- Aggregate relational choices using a conventional SQL array projection.
 SELECT interest, count(*) AS submissions
-FROM forms_reporting.event_interest_v1
+FROM forms.event_interest_v1
 CROSS JOIN LATERAL unnest(interests) AS interest
 GROUP BY interest;
 
 -- Explicitly combine compatible columns across revisions.
 SELECT submission_id, submitted_at, email, 1 AS revision
-FROM forms_reporting.event_interest_v1
+FROM forms.event_interest_v1
 UNION ALL
 SELECT submission_id, submitted_at, email, 2 AS revision
-FROM forms_reporting.event_interest_v2;
+FROM forms.event_interest_v2;
 ```
 
 There is no automatically changing “latest” report view: silently changing its column types would break reports. Pin a revision, or create an explicitly reviewed cross-version report. Field semantics may change between versions, so a cross-version union is a reporting decision.

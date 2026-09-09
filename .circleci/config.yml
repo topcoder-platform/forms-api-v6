@@ -36,8 +36,8 @@ jobs:
   verify:
     executor: node-postgres
     environment:
-      DATABASE_URL: postgresql://forms:forms_ci@localhost:5432/forms_test
-      TEST_DATABASE_URL: postgresql://forms:forms_ci@localhost:5432/forms_test
+      DATABASE_URL: postgresql://forms:forms_ci@localhost:5432/forms_test?schema=forms
+      TEST_DATABASE_URL: postgresql://forms:forms_ci@localhost:5432/forms_test?schema=forms
     steps:
       - checkout
       - install
@@ -50,7 +50,7 @@ jobs:
             pnpm test
             pnpm migrate:deploy
             pnpm test:integration
-            python3 -m py_compile deploy/bootstrap-dev.py deploy/release.py
+            python3 -m py_compile deploy/bootstrap-dev.py deploy/copy-dev-data.py deploy/release.py deploy/seed-dev.py
 
   deploy:
     executor: node-postgres

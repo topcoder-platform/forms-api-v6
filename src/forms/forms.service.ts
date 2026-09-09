@@ -445,7 +445,7 @@ export class FormsService {
   ): Promise<string> {
     const forms = await tx.$queryRaw<
       { id: string }[]
-    >`SELECT id FROM "Form" WHERE key = ${key} FOR UPDATE`;
+    >`SELECT id FROM "forms"."Form" WHERE key = ${key} FOR UPDATE`;
     if (!forms[0]) throw new NotFoundException('Form not found.');
     return forms[0].id;
   }

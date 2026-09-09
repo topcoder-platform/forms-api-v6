@@ -15,8 +15,8 @@ jobs:
           --health-cmd "pg_isready -U forms -d forms_test"
           --health-interval 5s --health-timeout 3s --health-retries 10
     env:
-      DATABASE_URL: postgresql://forms:forms_ci@localhost:5432/forms_test
-      TEST_DATABASE_URL: postgresql://forms:forms_ci@localhost:5432/forms_test
+      DATABASE_URL: postgresql://forms:forms_ci@localhost:5432/forms_test?schema=forms
+      TEST_DATABASE_URL: postgresql://forms:forms_ci@localhost:5432/forms_test?schema=forms
     steps:
       - uses: actions/checkout@v4
       - name: Select project Node and install pnpm

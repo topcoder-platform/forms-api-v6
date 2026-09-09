@@ -113,7 +113,7 @@ Resources:
       FromPort: 5432
       ToPort: 5432
       SourceSecurityGroupId: !Ref TaskSecurityGroup
-      Description: Dedicated forms database access.
+      Description: Forms schema access in the shared services database.
   TaskRole:
     Type: AWS::IAM::Role
     Properties:

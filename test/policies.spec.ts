@@ -149,6 +149,15 @@ describe('definition and deployment policies', () => {
       AUTH_AUDIENCE: 'forms-api',
     };
     expect(readConfig(env).trustProxy).toEqual([]);
+    expect(new URL(readConfig(env).databaseUrl).searchParams.get('schema')).toBe(
+      'forms',
+    );
+    expect(() =>
+      readConfig({
+        ...env,
+        DATABASE_URL: 'postgresql://localhost/topcoder-services?schema=public',
+      }),
+    ).toThrow();
     expect(() => readConfig({ ...env, AUTH_SECRET: '' })).toThrow();
     expect(() => readConfig({ ...env, AUTH_AUDIENCE: '' })).toThrow();
     expect(() => readConfig({ ...env, CORS_ORIGINS: '*' })).toThrow();

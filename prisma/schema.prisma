@@ -6,6 +6,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  schemas  = ["forms"]
 }
 
 enum FieldType {
@@ -18,17 +19,23 @@ enum FieldType {
   DATE
   SINGLE_SELECT
   MULTI_SELECT
+
+  @@schema("forms")
 }
 
 enum FormStatus {
   DRAFT
   PUBLISHED
   RETIRED
+
+  @@schema("forms")
 }
 
 enum FormAccess {
   ANONYMOUS
   MEMBER
+
+  @@schema("forms")
 }
 
 /// Stable, specifically named form identity. Versions carry the immutable definition.
@@ -37,6 +44,8 @@ model Form {
   key       String        @unique @db.VarChar(40)
   createdAt DateTime      @default(now()) @db.Timestamptz(3)
   versions  FormVersion[]
+
+  @@schema("forms")
 }
 
 /// One immutable schema revision; publishing creates its named reporting view.
@@ -61,6 +70,8 @@ model FormVersion {
   submissions    Submission[]
 
   @@unique([formId, version])
+
+  @@schema("forms")
 }
 
 /// A named, typed field owned by exactly one form version, including validation rules.
@@ -84,6 +95,8 @@ model FormField {
   @@unique([versionId, position])
   @@unique([id, versionId, type])
   @@unique([id, versionId])
+
+  @@schema("forms")
 }
 
 /// Allowlisted choice values; keys are stable reporting values and labels are display copy.
@@ -101,6 +114,8 @@ model FieldOption {
   @@unique([fieldId, key])
   @@unique([fieldId, position])
   @@unique([id, fieldId, versionId])
+
+  @@schema("forms")
 }
 
 /// Submission envelope. Identity is taken from verified JWT claims, never submitted answers.
@@ -118,6 +133,8 @@ model Submission {
   @@unique([versionId, idempotencyKey])
   @@unique([id, versionId])
   @@index([versionId, createdAt, id])
+
+  @@schema("forms")
 }
 
 /// Typed scalar answer. SQL CHECKs and composite foreign keys enforce type and ownership.
@@ -141,6 +158,8 @@ model Answer {
   @@unique([submissionId, fieldId])
   @@unique([id, fieldId, versionId, type])
   @@index([fieldId])
+
+  @@schema("forms")
 }
 
 /// Multi-select choices are individual relational rows, never JSON or delimiter-encoded text.
@@ -155,4 +174,6 @@ model AnswerSelection {
 
   @@id([answerId, optionId])
   @@index([optionId])
+
+  @@schema("forms")
 }

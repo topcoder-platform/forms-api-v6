@@ -21,11 +21,14 @@ export class DbService
    */
   constructor(@Inject(CONFIG) config: AppConfig) {
     super({
-      adapter: new PrismaPg({
-        connectionString: config.databaseUrl,
-        max: 10,
-        connectionTimeoutMillis: 5000,
-      }),
+      adapter: new PrismaPg(
+        {
+          connectionString: config.databaseUrl,
+          max: 10,
+          connectionTimeoutMillis: 5000,
+        },
+        { schema: 'forms' },
+      ),
     });
   }
 

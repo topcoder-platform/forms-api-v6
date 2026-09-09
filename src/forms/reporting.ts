@@ -17,7 +17,7 @@ export function reportViewName(key: string, version: number): string {
     version > 1000000
   )
     throw new BadRequestException('Invalid form key or version.');
-  return `"forms_reporting"."${key}_v${version}"`;
+  return `"forms"."${key}_v${version}"`;
 }
 
 /**
@@ -57,16 +57,16 @@ export function buildReportView(
         break;
       case FieldType.SINGLE_SELECT:
         value =
-          '(SELECT o.key FROM "public"."FieldOption" o WHERE o.id = a."optionId")';
+          '(SELECT o.key FROM "forms"."FieldOption" o WHERE o.id = a."optionId")';
         break;
       case FieldType.MULTI_SELECT:
         value =
-          'ARRAY(SELECT o.key::text FROM "public"."AnswerSelection" c JOIN "public"."FieldOption" o ON o.id = c."optionId" WHERE c."answerId" = a.id ORDER BY o.position)';
+          'ARRAY(SELECT o.key::text FROM "forms"."AnswerSelection" c JOIN "forms"."FieldOption" o ON o.id = c."optionId" WHERE c."answerId" = a.id ORDER BY o.position)';
         break;
     }
-    return `(SELECT ${value} FROM "public"."Answer" a WHERE a."submissionId" = s.id AND a."fieldId" = ${uuidLiteral(field.id)}) AS "${field.key}"`;
+    return `(SELECT ${value} FROM "forms"."Answer" a WHERE a."submissionId" = s.id AND a."fieldId" = ${uuidLiteral(field.id)}) AS "${field.key}"`;
   });
-  return `CREATE VIEW ${view} AS SELECT s.id AS submission_id, s."createdAt" AS submitted_at, s."memberId" AS member_id, s."sourcePage" AS source_page, ${version}::integer AS form_version, ${columns.join(', ')} FROM "public"."Submission" s WHERE s."versionId" = ${uuidLiteral(versionId)}`;
+  return `CREATE VIEW ${view} AS SELECT s.id AS submission_id, s."createdAt" AS submitted_at, s."memberId" AS member_id, s."sourcePage" AS source_page, ${version}::integer AS form_version, ${columns.join(', ')} FROM "forms"."Submission" s WHERE s."versionId" = ${uuidLiteral(versionId)}`;
 }
 
 /**

@@ -83,7 +83,7 @@ def main():
     container.pop('healthCheck', None)
     container['portMappings'] = []
     container['secrets'] = [{'name': 'DATABASE_URL', 'valueFrom': settings['ParameterPrefix'] + '/MIGRATION_DATABASE_URL'}]
-    container['command'] = ['/bin/sh', '-c', 'pnpm migrate:deploy && pnpm exec prisma db execute --file deploy/grant-runtime.sql']
+    container['command'] = ['/bin/sh', '-c', 'pnpm migrate:deploy']
     migration_definition = ecs.register_task_definition(**migration)['taskDefinition']['taskDefinitionArn']
     service = ecs.describe_services(cluster=settings['ClusterName'], services=[output['ServiceName']])['services'][0]
     result = ecs.run_task(cluster=settings['ClusterName'], taskDefinition=migration_definition,

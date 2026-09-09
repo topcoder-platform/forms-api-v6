@@ -13,29 +13,22 @@ published schemas and anonymous submissions are public.
 
 ## Initial environment setup
 
-For dev, load AWS credentials into the environment, then run:
+Dev uses schema `forms` in database `topcoder-services` on the existing services RDS instance. The database administrator provisions the `forms` login and schema; this service does not create a separate database or rotate that login. All tables, enums, functions, reporting views, and Prisma migration history remain in `forms`.
 
-```sh
-python3 deploy/bootstrap-dev.py --apply
-aws cloudformation deploy --stack-name forms-api-v6-dev \
-  --template-file deploy/service.yaml --capabilities CAPABILITY_IAM \
-  --parameter-overrides BootstrapOnly=false DesiredCount=0
-```
+Load the dev AWS credentials and the administrator-provided `FORMS_DB_USERNAME` / `FORMS_DB_PASSWORD` into the environment. `python3 deploy/bootstrap-dev.py` checks the existing connection and schema ownership without writes. Once the target schema is migrated and its existing data has been copied, `python3 deploy/bootstrap-dev.py --apply` selects it in the encrypted `DATABASE_URL` and `MIGRATION_DATABASE_URL` parameters under `/config/forms-api-v6/appvar`. Both URLs use the supplied `forms` login, `schema=forms`, and certificate-verified TLS. The script preserves the existing authentication settings.
 
-The database bootstrap uses the existing RDS administrative connection from SSM
-and creates only the dedicated `forms` database, `forms_migrator`, `forms_runtime`,
-and four encrypted settings under `/config/forms-api-v6/appvar`. Passwords are
-random and existing passwords are retained. PostgreSQL TLS validates the AWS RDS
-certificate through the checked-in regional trust bundle. Runtime cannot modify
-base-table schemas or migration history; publication can create reporting views.
+For a new environment, create the CloudFormation stack with `DesiredCount=0`, configure the equivalent database/schema/login and encrypted settings, run the migrations, then release the runtime. Production uses `forms-api-v6-production` with `Environment=production`, production networking/gateway parameters, CORS origins, and credentials. Template defaults describe dev and must be overridden for production. The bootstrap script intentionally refuses another AWS account.
 
-For production, provision the same dedicated database/logins and encrypted
-`DATABASE_URL`, `MIGRATION_DATABASE_URL`, `VALID_ISSUERS` (comma-separated), and
-`AUTH_AUDIENCE` in the production account. `AUTH_SECRET` references that account's
-existing common setting. Create `forms-api-v6-production` with `Environment=production`,
-production VPC/subnets/security groups/listener/gateway IDs and production CORS
-origins. Template defaults describe dev and must be overridden for production.
-The dev bootstrap intentionally refuses another account.
+## Moving the original dev data
+
+The original `forms` database is preserved as a recovery copy. Its three applied migrations are archived unchanged in `prisma/legacy-migrations`; current `prisma/migrations` contains a fresh baseline for schema `forms`. Do not run the new baseline against the old installation as an in-place upgrade.
+
+1. Migrate the empty target schema using the new login and `schema=forms`.
+2. Pause the Forms ECS service and wait for its tasks to stop before the final data copy.
+3. With `boto3` and `psycopg[binary]` installed, run `python3 deploy/copy-dev-data.py --apply`. It copies the seven service tables in one transaction, preserving every ID, version, timestamp, answer, and idempotency key. It recreates each reporting view in `forms` and verifies all table/view contents against the source. The copy tool temporarily disables only application triggers inside this transaction, retaining foreign keys and CHECKs, and re-enables them before commit.
+4. Select the new encrypted URLs with `bootstrap-dev.py --apply` and release the matching runtime. Confirm readiness, the published schema, and a real browser submission against `forms.event_interest_v1`.
+
+The copy refuses a nonempty target. The source is retained and fenced against further application writes at cutover. A rollback requires stopping the new service, restoring the prior URLs/image, and explicitly reconciling any new submissions before restoring source writes. Never switch back after accepting new data without reconciliation.
 
 ## Releases
 
@@ -60,7 +53,7 @@ Use `--network=host` for local Docker builds if the workstation bridge cannot
 resolve the registry. `release.py` requires boto3 and Docker and checks account and
 stack environment before pushing. Runtime and migration images receive immutable
 release tags. The migration task runs in the same private subnets as the service,
-uses its own database login, and reapplies `grant-runtime.sql` after migrations.
+uses the configured schema-owner login, and applies only the schema-scoped migrations.
 Only exit code zero permits CloudFormation promotion. ECS keeps the previous task
 healthy during rollout and uses its deployment circuit breaker to roll back failed
 runtime starts. Database migrations must remain compatible with the previous

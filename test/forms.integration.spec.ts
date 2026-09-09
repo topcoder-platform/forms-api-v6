@@ -109,7 +109,7 @@ describe('forms API with real PostgreSQL', () => {
       .expect(201);
     expect(receipt.body).not.toHaveProperty('answers');
     const rows = await db.$queryRawUnsafe<Record<string, unknown>[]>(
-      `SELECT * FROM "forms_reporting"."${key}_v1"`,
+      `SELECT * FROM "forms"."${key}_v1"`,
     );
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
@@ -142,7 +142,7 @@ describe('forms API with real PostgreSQL', () => {
     ).toBe(2);
     const jsonColumns = await db.$queryRaw<
       unknown[]
-    >`SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = 'public' AND data_type IN ('json', 'jsonb')`;
+    >`SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = 'forms' AND data_type IN ('json', 'jsonb')`;
     expect(jsonColumns).toEqual([]);
   });
 

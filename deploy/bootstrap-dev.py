@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Provision the dedicated dev forms database and encrypted SSM configuration.
+"""Validate the existing dev forms schema/login and configure encrypted SSM settings.
 
 Requires inherited dev AWS credentials, boto3, and psql with RDS network access.
-Runs read-only unless --apply is provided. Preserves existing service credentials;
+Reads FORMS_DB_USERNAME/FORMS_DB_PASSWORD from the inherited environment.
+Runs read-only unless --apply explicitly replaces the two database URLs;
 never logs passwords, URLs, or SQL containing credentials. Errors stop provisioning.
 """
 import argparse
 import json
 import os
 from pathlib import Path
-import secrets
 import subprocess
 from urllib.parse import quote, unquote, urlsplit
 
@@ -59,8 +59,30 @@ def sql(connection, statement):
     return result.stdout.strip()
 
 
+def target_connection():
+    """Return the existing dev schema-owner URL from inherited credentials.
+
+    FORMS_DB_USERNAME must be forms; FORMS_DB_PASSWORD must be nonempty. The
+    database/host/schema are fixed to this dev deployment. Raises on missing or
+    mismatched inputs and never prints credentials.
+    """
+    username = os.environ.get('FORMS_DB_USERNAME')
+    password = os.environ.get('FORMS_DB_PASSWORD')
+    if username != 'forms' or not password:
+        raise RuntimeError('FORMS_DB_USERNAME=forms and FORMS_DB_PASSWORD are required.')
+    return urlsplit(f'postgresql://forms:{quote(password, safe="")}@'
+                    'topcoder-services.ci8xwsszszsw.us-east-1.rds.amazonaws.com:5432/'
+                    'topcoder-services?sslmode=verify-full&schema=forms')
+
+
 def main():
-    """Inspect or provision fixed dev resources; raise on account, owner, or role mismatch."""
+    """Check the dev schema owner, optionally updating the managed connection URLs.
+
+    Does not create databases, schemas, or roles. --apply selects the user-provided
+    forms login for both runtime and migrations; run it only after data migration
+    and before deploying the matching schema-aware runtime. AWS/SQL errors stop
+    configuration without logging credentials.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--apply', action='store_true')
     args = parser.parse_args()
@@ -68,37 +90,23 @@ def main():
     if session.client('sts').get_caller_identity()['Account'] != '811668436784':
         raise RuntimeError('This bootstrap requires development account 811668436784.')
     ssm = session.client('ssm')
-    source = urlsplit(parameter(ssm, '/config/member-api-v6/appvar/DATABASE_URL'))
-    if source.path != '/topcoder-services':
-        raise RuntimeError('Unexpected database administration connection.')
-    owner = sql(source, "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname='forms';")
-    if owner and owner != 'forms_migrator':
-        raise RuntimeError('Existing forms database has an unexpected owner.')
-    print('Dedicated forms database: ' + ('exists' if owner else 'absent'))
+    connection = target_connection()
+    owner = sql(connection, "SELECT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname='forms';")
+    if owner != 'forms':
+        raise RuntimeError('The forms schema must exist and be owned by the forms login.')
+    print('Verified forms user and schema in topcoder-services.')
     if not args.apply:
-        print('Plan: forms database, forms_migrator owner, forms_runtime login, four encrypted settings.')
+        print('Plan: select this connection for runtime and migrations; preserve the existing database.')
         return
-    for role, key in [('forms_migrator', 'MIGRATION_DATABASE_URL'), ('forms_runtime', 'DATABASE_URL')]:
-        existing = parameter(ssm, PREFIX + '/' + key)
-        present = sql(source, f"SELECT 1 FROM pg_roles WHERE rolname='{role}';")
-        if present and not existing:
-            raise RuntimeError(f'{role} exists without managed credentials; refusing rotation.')
-        password = unquote(urlsplit(existing).password) if existing else secrets.token_hex(32)
-        host = source.hostname + (f':{source.port}' if source.port else '')
-        url = f'postgresql://{role}:{quote(password, safe="")}@{host}/forms?sslmode=verify-full'
-        ensure_parameter(ssm, PREFIX + '/' + key, existing or url)
-        if not present:
-            literal = password.replace("'", "''")
-            sql(source, f"CREATE ROLE {role} LOGIN PASSWORD '{literal}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;")
-    if not owner:
-        sql(source, 'CREATE DATABASE forms OWNER forms_migrator;')
-    sql(source, 'REVOKE ALL ON DATABASE forms FROM PUBLIC; GRANT CONNECT ON DATABASE forms TO forms_runtime;')
-    owner_url = urlsplit(parameter(ssm, PREFIX + '/MIGRATION_DATABASE_URL'))
-    sql(owner_url, 'REVOKE CREATE ON SCHEMA public FROM PUBLIC; GRANT USAGE ON SCHEMA public TO forms_runtime;')
+    for key in ['DATABASE_URL', 'MIGRATION_DATABASE_URL']:
+        name = PREFIX + '/' + key
+        if parameter(ssm, name) != connection.geturl():
+            ssm.put_parameter(Name=name, Value=connection.geturl(), Type='SecureString',
+                              Overwrite=True, Description='Forms schema in topcoder-services; user-provided forms login')
     issuers = json.loads(parameter(ssm, '/config/common/global-appvar/VALID_ISSUERS'))
     ensure_parameter(ssm, PREFIX + '/VALID_ISSUERS', ','.join(issuers))
     ensure_parameter(ssm, PREFIX + '/AUTH_AUDIENCE', parameter(ssm, '/config/common/global-appvar/AUTH0_AUDIENCE'))
-    print('Forms database, separate logins, and four SecureString parameters are ready.')
+    print('Encrypted database URLs now select topcoder-services, schema forms, user forms.')
 
 
 if __name__ == '__main__':

@@ -6,11 +6,11 @@ A NestJS/TypeScript service for named website forms, immutable form versions, ty
 
 ```sql
 SELECT submitted_at, email, full_name, interests, receive_updates
-FROM forms_reporting.event_interest_v1
+FROM forms.event_interest_v1
 ORDER BY submitted_at;
 ```
 
-This uses normalized typed answer tables and per-version reporting views. It does **not** create a new physical table for every form. The [data model and tradeoffs](docs/data-model.md) explain the distinction.
+All tables and views live in the `forms` schema; dev uses the shared `topcoder-services` database. This uses normalized typed answer tables and per-version reporting views. It does **not** create a new physical table for every form. The [data model and tradeoffs](docs/data-model.md) explain the distinction.
 
 ## Stack
 
@@ -63,7 +63,7 @@ Stop the Compose API first if it already occupies port 3006. `pnpm start:dev` us
 
 1. Register a stable key such as `event_interest`.
 2. Save revision 1 with its named fields and types.
-3. Publish it. The API creates `forms_reporting.event_interest_v1` transactionally.
+3. Publish it. The API creates `forms.event_interest_v1` transactionally.
 4. Add a Payload form block referencing `event_interest` to a content page.
 5. The website fetches the current API schema and submits the exact displayed revision with a UUID `Idempotency-Key`.
 6. Read private paginated JSON/CSV reports or query the SQL view with a reporting database role.
@@ -80,7 +80,7 @@ Anonymous and signed-in member access are configurable per form. Member identity
 - [Operations](docs/operations.md): environment, database permissions, deployment, and verification.
 - [Example definition](examples/event-interest.json).
 
-The portable integrations live inside this service. Register them in the host Payload configuration and website renderer as documented. The existing `payload-cms` and `topcoder-website` repositories have not been changed or deployed by this project.
+The portable integrations live inside this service. Register them in the host Payload configuration and website renderer as documented. The dev CMS and website integrations are deployed at `https://www.topcoder-dev.com/forms-test`.
 
 ## Verify
 
@@ -96,8 +96,8 @@ Integration tests require an explicitly selected disposable database, migrated w
 
 ```sh
 nvm use
-DATABASE_URL=postgresql://forms:forms_local@127.0.0.1:5546/forms pnpm migrate:deploy
-TEST_DATABASE_URL=postgresql://forms:forms_local@127.0.0.1:5546/forms pnpm test:integration
+DATABASE_URL=postgresql://forms:forms_local@127.0.0.1:5546/forms?schema=forms pnpm migrate:deploy
+TEST_DATABASE_URL=postgresql://forms:forms_local@127.0.0.1:5546/forms?schema=forms pnpm test:integration
 ```
 
 Coverage includes actual PostgreSQL writes, all field types, SQL views, CSV output, concurrent idempotency, immutable versions, JWT access, required-answer/ownership constraints, Payload synchronization over HTTP, and browser rendering/retry behavior. CI executes the same checks with PostgreSQL 17.
