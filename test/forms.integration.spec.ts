@@ -70,7 +70,6 @@ describe('forms API with real PostgreSQL', () => {
     await request(app.getHttpServer()).get('/v6/health').expect(200);
     await request(app.getHttpServer()).get('/v6/health/ready').expect(200);
     await request(app.getHttpServer()).get('/v6/docs-json').expect(200);
-    await request(app.getHttpServer()).get('/v6/forms/health').expect(200);
     await request(app.getHttpServer()).get('/v6/forms/health/ready').expect(200);
     const docs = await request(app.getHttpServer())
       .get('/v6/forms/api-docs')

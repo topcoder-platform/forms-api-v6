@@ -4,7 +4,7 @@ import { Access } from './auth';
 import { DbService } from './db.service';
 
 /** Supplies unauthenticated liveness and database readiness checks for deployment probes. */
-@Controller(['health', 'forms/health'])
+@Controller()
 @Access('public')
 @SkipThrottle()
 export class HealthController {
@@ -12,13 +12,13 @@ export class HealthController {
   constructor(private readonly db: DbService) {}
 
   /** Liveness probe with no input; returns ok when the event loop serves requests and never throws. */
-  @Get()
+  @Get('health')
   live() {
     return { status: 'ok' };
   }
 
   /** Readiness probe with no input; returns ok after SELECT 1, or throws ServiceUnavailableException on database failure. */
-  @Get('ready')
+  @Get(['health/ready', 'forms/health/ready'])
   async ready() {
     try {
       await this.db.$queryRaw`SELECT 1`;
