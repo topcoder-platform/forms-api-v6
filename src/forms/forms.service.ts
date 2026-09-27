@@ -16,8 +16,19 @@ import { DbService } from '../db.service';
 import { Prisma } from '../generated/prisma/client';
 import { FieldType, FormStatus } from '../generated/prisma/enums';
 import type { Actor } from '../auth';
-import { DefinitionDto, KEY_PATTERN, PageDto, SubmissionDto } from './dto';
-import { buildReportView, csvCell, reportViewName } from './reporting';
+import {
+  DefinitionDto,
+  KEY_PATTERN,
+  PageDto,
+  ReportDatesDto,
+  SubmissionDto,
+} from './dto';
+import {
+  buildReportView,
+  csvCell,
+  reportDateRange,
+  reportViewName,
+} from './reporting';
 import {
   validateAnswers,
   validateDefinition,
@@ -76,6 +87,187 @@ export class FormsService {
     });
     const data = forms.slice(0, 100);
     return { data, nextCursor: forms.length > 100 ? data.at(-1)!.key : null };
+  }
+
+  /**
+   * Lists published/retired forms for reporters without granting editing access.
+   * @param after Optional form-key cursor. @returns Up to 100 named forms and a continuation key.
+   * @throws BadRequestException for invalid cursors; propagates database read errors.
+   */
+  async reportDirectory(after?: string) {
+    if (after && !KEY_PATTERN.test(after))
+      throw new BadRequestException('Invalid form cursor.');
+    const forms = await this.db.form.findMany({
+      where: {
+        ...(after ? { key: { gt: after } } : {}),
+        versions: { some: { publishedAt: { not: null } } },
+      },
+      orderBy: { key: 'asc' },
+      take: 101,
+      select: {
+        key: true,
+        versions: {
+          where: { publishedAt: { not: null } },
+          orderBy: { version: 'desc' },
+          take: 1,
+          select: { title: true },
+        },
+      },
+    });
+    const data = forms
+      .slice(0, 100)
+      .map((form) => ({ key: form.key, title: form.versions[0].title }));
+    return { data, nextCursor: forms.length > 100 ? data.at(-1)!.key : null };
+  }
+
+  /**
+   * Reads a form across all published revisions for the reports portal.
+   * @param key Form key. @param page Inclusive dates and cursor pagination. @param snapshot Export upper timestamp bound.
+   * @returns Stable union columns, typed rows, total matching count, and next cursor.
+   * @throws NotFoundException for unknown forms; BadRequestException for invalid dates/cursors; database errors on failure.
+   */
+  async reportForm(key: string, page: PageDto, snapshot?: Date) {
+    reportViewName(key, 1);
+    const dates = reportDateRange(page);
+    const form = await this.db.form.findUnique({
+      where: { key },
+      include: {
+        versions: {
+          where: { publishedAt: { not: null } },
+          orderBy: { version: 'asc' },
+          include: definitionInclude,
+        },
+      },
+    });
+    if (!form) throw new NotFoundException('Form not found.');
+    const where: Prisma.SubmissionWhereInput = {
+      versionId: { in: form.versions.map((version) => version.id) },
+      createdAt: { ...dates, ...(snapshot ? { lte: snapshot } : {}) },
+    };
+    if (
+      page.after &&
+      !(await this.db.submission.findFirst({
+        where: { ...where, id: page.after },
+      }))
+    )
+      throw new BadRequestException(
+        'Cursor does not belong to this form and date range.',
+      );
+    const [submissions, total] = await Promise.all([
+      this.db.submission.findMany({
+        where,
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        take: page.limit + 1,
+        ...(page.after ? { cursor: { id: page.after }, skip: 1 } : {}),
+        include: {
+          answers: {
+            include: {
+              field: true,
+              option: true,
+              selections: { include: { option: true } },
+            },
+          },
+          version: true,
+        },
+      }),
+      this.db.submission.count({ where }),
+    ]);
+    const fields = [
+      ...new Map(
+        form.versions
+          .flatMap((version) => version.fields)
+          .map((field) => [field.key, field]),
+      ).values(),
+    ];
+    const columns = [
+      'submission_id',
+      'submitted_at',
+      'member_id',
+      'source_page',
+      'form_version',
+      ...fields.map((field) => field.key),
+    ];
+    const data = submissions.slice(0, page.limit).map((submission) => {
+      const row: Record<string, unknown> = Object.fromEntries(
+        columns.map((column) => [column, null]),
+      );
+      Object.assign(row, {
+        submission_id: submission.id,
+        submitted_at: submission.createdAt.toISOString(),
+        member_id: submission.memberId,
+        source_page: submission.sourcePage,
+        form_version: submission.version.version,
+      });
+      for (const answer of submission.answers) {
+        row[answer.field.key] =
+          answer.type === FieldType.MULTI_SELECT
+            ? answer.selections
+                .sort((a, b) => a.option.position - b.option.position)
+                .map((selection) => selection.option.key)
+            : (answer.textValue ??
+              answer.integerValue ??
+              answer.decimalValue?.toFixed() ??
+              answer.booleanValue ??
+              answer.dateValue?.toISOString().slice(0, 10) ??
+              answer.option?.key ??
+              null);
+      }
+      return row;
+    });
+    return {
+      form: key,
+      columns,
+      labels: Object.fromEntries(
+        fields.map((field) => [field.key, field.label]),
+      ),
+      data,
+      total,
+      nextCursor:
+        submissions.length > page.limit ? submissions[page.limit - 1].id : null,
+    };
+  }
+
+  /**
+   * Prepares a complete CSV export, validating the request before HTTP headers are sent.
+   * @param key Form key. @param dates Inclusive date filters, without table pagination.
+   * @returns Async CSV chunks with one header and all matching rows, fetched in bounded batches.
+   * @throws The same errors as reportForm(); later database failures interrupt the response stream.
+   */
+  async exportForm(key: string, dates: ReportDatesDto) {
+    const snapshot = new Date();
+    const page: PageDto = { ...dates, limit: 1000 };
+    const first = await this.reportForm(key, page, snapshot);
+    return this.csvChunks(key, page, snapshot, first);
+  }
+
+  /**
+   * Streams full-report CSV pages with backpressure and fixed columns from export start.
+   * @param key Form key. @param page Validated dates. @param snapshot Upper time bound. @param first First report page.
+   * @returns CSV chunks consumed by the HTTP stream. @throws Database errors if a later page cannot be read.
+   */
+  private async *csvChunks(
+    key: string,
+    page: PageDto,
+    snapshot: Date,
+    first: Awaited<ReturnType<FormsService['reportForm']>>,
+  ) {
+    const columns = first.columns;
+    yield columns.map(csvCell).join(',') + '\r\n';
+    let report = first;
+    while (true) {
+      yield report.data
+        .map(
+          (row) =>
+            columns.map((column) => csvCell(row[column])).join(',') + '\r\n',
+        )
+        .join('');
+      if (!report.nextCursor) return;
+      report = await this.reportForm(
+        key,
+        { ...page, after: report.nextCursor },
+        snapshot,
+      );
+    }
   }
 
   /**
@@ -399,25 +591,26 @@ export class FormsService {
 
   /**
    * Reads a bounded submission page with stable named columns for private reporting.
-   * @param key Form key. @param version Published or retired revision. @param page Page size and optional prior receipt ID.
+   * @param key Form key. @param version Published or retired revision. @param page Page size, inclusive UTC dates, and optional prior receipt ID.
    * @returns Column metadata, rows, and next cursor; numeric decimals are exact strings.
    * @throws BadRequestException for a cursor outside this version; ConflictException for drafts; NotFoundException for missing forms.
    */
   async report(key: string, version: number, page: PageDto) {
+    const dates = reportDateRange(page);
     const definition = await this.findVersion(this.db, key, version);
     if (definition.status === FormStatus.DRAFT)
       throw new ConflictException('Draft versions have no submission report.');
     if (
       page.after &&
       !(await this.db.submission.findFirst({
-        where: { id: page.after, versionId: definition.id },
+        where: { id: page.after, versionId: definition.id, createdAt: dates },
       }))
     )
       throw new BadRequestException(
         'Cursor does not belong to this form version.',
       );
     const submissions = await this.db.submission.findMany({
-      where: { versionId: definition.id },
+      where: { versionId: definition.id, createdAt: dates },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       take: page.limit + 1,
       ...(page.after ? { cursor: { id: page.after }, skip: 1 } : {}),

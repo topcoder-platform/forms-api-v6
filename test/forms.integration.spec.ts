@@ -10,6 +10,7 @@ import {
 } from 'vitest';
 import request from 'supertest';
 import { randomUUID } from 'node:crypto';
+import letsTalkDefinition from '../examples/lets-talk.json';
 import { createApp } from '../src/bootstrap';
 import { DbService } from '../src/db.service';
 import {
@@ -70,7 +71,7 @@ describe('forms API with real PostgreSQL', () => {
    * @param input Complete definition. @param publish Whether to publish.
    * @returns Unique form key. @throws Supertest assertion errors on unexpected HTTP responses.
    */
-  async function create(input = definition(), publish = true) {
+  async function create(input: object = definition(), publish = true) {
     const key = formKey();
     await request(app.getHttpServer())
       .post('/v6/forms')
@@ -89,6 +90,267 @@ describe('forms API with real PostgreSQL', () => {
         .expect(200);
     return key;
   }
+
+  it('accepts the migrated lets-talk definition and publishes its canonical Kafka payload once', async () => {
+    const key = await create(letsTalkDefinition);
+    const retryKey = randomUUID();
+    const body = {
+      version: 1,
+      kafka: true,
+      sourcePage: '/lets-talk',
+      answers: {
+        interested_in: 'app_design_development',
+        firstname: 'Form',
+        lastname: 'Test',
+        email: 'forms-test@example.com',
+        company: 'Test Company',
+        briefly_describe_your_inquiry: 'Development test',
+        leadsource: 'landing_page',
+        source__c: '/lets-talk',
+        lead_source_for_campaign__c: "NewTCLet'sTalk",
+        primary_campaign__c: "NewTCLet'sTalk",
+        insta_page_name__c: "New Topcoder.com - Let's chat form",
+        utm_medium__c: '',
+        utm_campaign__c: '',
+        utm_source__c: '',
+      },
+    };
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await request(app.getHttpServer())
+        .post(`/v6/forms/${key}/submissions`)
+        .set('Idempotency-Key', retryKey)
+        .send(body)
+        .expect(201);
+    }
+    expect(postEvent).toHaveBeenCalledTimes(1);
+    expect(postEvent.mock.calls[0][0]).toMatchObject({
+      topic: 'form.submitted',
+      payload: {
+        formKey: key,
+        sourcePage: '/lets-talk',
+        answers: {
+          interested_in: 'app_design_development',
+          leadsource: 'landing_page',
+          email: 'forms-test@example.com',
+        },
+      },
+    });
+    const report = await request(app.getHttpServer())
+      .get(`/v6/forms/${key}/submissions`)
+      .auth(reporter, { type: 'bearer' })
+      .expect(200);
+    expect(report.body.total).toBe(1);
+    expect(report.body.data[0]).toMatchObject({
+      source_page: '/lets-talk',
+      company: 'Test Company',
+    });
+  });
+
+  it('provides a reporter-only directory and rejects unprivileged report/export access', async () => {
+    const key = await create();
+    const directory = await request(app.getHttpServer())
+      .get('/v6/forms/reports/directory')
+      .query({ after: key.slice(0, -1) })
+      .auth(reporter, { type: 'bearer' })
+      .expect(200);
+    expect(directory.body.data).toContainEqual({
+      key,
+      title: 'Event interest',
+    });
+    const readOnly = await token({
+      gty: 'client-credentials',
+      scope: 'read:forms-submissions',
+    });
+    await request(app.getHttpServer())
+      .get('/v6/forms/reports/directory')
+      .auth(readOnly, { type: 'bearer' })
+      .expect(200);
+    for (const path of [
+      '/reports/directory',
+      `/${key}/submissions`,
+      `/${key}/submissions/export`,
+    ]) {
+      await request(app.getHttpServer()).get(`/v6/forms${path}`).expect(401);
+      await request(app.getHttpServer())
+        .get(`/v6/forms${path}`)
+        .auth(member, { type: 'bearer' })
+        .expect(403);
+    }
+    await request(app.getHttpServer())
+      .get('/v6/forms')
+      .auth(reporter, { type: 'bearer' })
+      .expect(403);
+  });
+
+  it('combines revisions, includes whole UTC end dates, and validates cursors and calendar dates', async () => {
+    const optionalDefinition = {
+      ...definition(),
+      fields: definition().fields.map((field) => ({
+        ...field,
+        required: false,
+      })),
+    };
+    const key = await create(optionalDefinition);
+    /**
+     * Inserts dated immutable test submissions with typed answers into the disposable database.
+     * @param revision Published version. @param date UTC fixture timestamp. @returns Stored receipt ID.
+     * @throws Database errors if the fixture violates relational constraints.
+     */
+    async function seed(revision: number, date: string) {
+      const version = await db.formVersion.findFirstOrThrow({
+        where: { form: { key }, version: revision },
+        include: { fields: true },
+      });
+      return db.submission.create({
+        data: {
+          versionId: version.id,
+          idempotencyKey: randomUUID(),
+          requestHash: 'a'.repeat(64),
+          createdAt: new Date(date),
+          answers: {
+            create: version.fields
+              .filter((field) =>
+                ['age', 'updates', 'new_field'].includes(field.key),
+              )
+              .map((field) => ({
+                fieldId: field.id,
+                type: field.type,
+                ...(field.key === 'age'
+                  ? { integerValue: 0 }
+                  : field.key === 'updates'
+                    ? { booleanValue: false }
+                    : { textValue: '=SUM(1,2)' }),
+              })),
+          },
+        },
+      });
+    }
+    const first = await seed(1, '2020-09-01T00:00:00Z');
+    const next = {
+      ...optionalDefinition,
+      fields: [
+        ...optionalDefinition.fields,
+        { key: 'new_field', label: 'New field', type: 'TEXT' },
+      ],
+    };
+    await request(app.getHttpServer())
+      .put(`/v6/forms/${key}/versions/2`)
+      .auth(admin, { type: 'bearer' })
+      .send(next)
+      .expect(200);
+    await request(app.getHttpServer())
+      .post(`/v6/forms/${key}/versions/2/publish`)
+      .auth(admin, { type: 'bearer' })
+      .expect(200);
+    const second = await seed(2, '2020-09-30T23:59:59.999Z');
+    const path = `/v6/forms/${key}/submissions`;
+    const page = await request(app.getHttpServer())
+      .get(path)
+      .query({ limit: 1, startDate: '2020-09-01', endDate: '2020-09-30' })
+      .auth(reporter, { type: 'bearer' })
+      .expect(200);
+    expect(page.body.total).toBe(2);
+    expect(page.body.data[0]).toMatchObject({
+      form_version: 1,
+      new_field: null,
+      updates: false,
+      age: 0,
+    });
+    const last = await request(app.getHttpServer())
+      .get(path)
+      .query({
+        limit: 1,
+        after: page.body.nextCursor,
+        startDate: '2020-09-01',
+        endDate: '2020-09-30',
+      })
+      .auth(reporter, { type: 'bearer' })
+      .expect(200);
+    expect(last.body.data[0]).toMatchObject({
+      form_version: 2,
+      new_field: '=SUM(1,2)',
+    });
+    expect(last.body.nextCursor).toBeNull();
+    const empty = await request(app.getHttpServer())
+      .get(path)
+      .query({ startDate: '2020-10-01' })
+      .auth(reporter, { type: 'bearer' })
+      .expect(200);
+    expect(empty.body.total).toBe(0);
+    expect(empty.body.columns).toContain('new_field');
+    for (const query of [
+      { startDate: '2020-02-30' },
+      { endDate: 'invalid' },
+      { startDate: '2020-10-01', endDate: '2020-09-30' },
+      { after: randomUUID() },
+      { after: first.id, startDate: '2020-09-02' },
+    ]) {
+      await request(app.getHttpServer())
+        .get(path)
+        .query(query)
+        .auth(reporter, { type: 'bearer' })
+        .expect(400);
+    }
+    const csv = await request(app.getHttpServer())
+      .get(`${path}/export`)
+      .query({ endDate: '2020-09-30' })
+      .auth(reporter, { type: 'bearer' })
+      .expect(200);
+    expect(csv.text).toContain('"\'=SUM(1,2)"');
+    expect(csv.text).toContain(first.id);
+    expect(csv.text).toContain(second.id);
+    await request(app.getHttpServer())
+      .get(`${path}/export`)
+      .query({ startDate: '2020-02-30' })
+      .auth(reporter, { type: 'bearer' })
+      .expect(400);
+    await request(app.getHttpServer())
+      .get(`${path}/export`)
+      .query({ limit: 1 })
+      .auth(reporter, { type: 'bearer' })
+      .expect(400);
+  });
+
+  it('exports more than one thousand rows with one header and no table-page truncation', async () => {
+    const key = await create({
+      ...definition(),
+      fields: definition().fields.map((field) => ({
+        ...field,
+        required: false,
+      })),
+    });
+    const version = await db.formVersion.findFirstOrThrow({
+      where: { form: { key } },
+    });
+    const ids = Array.from({ length: 1002 }, () => randomUUID());
+    await db.submission.createMany({
+      data: ids.map((id) => ({
+        id,
+        versionId: version.id,
+        idempotencyKey: randomUUID(),
+        requestHash: 'a'.repeat(64),
+        createdAt: new Date('2020-09-15T12:00:00Z'),
+      })),
+    });
+    const path = `/v6/forms/${key}/submissions/export`;
+    const csv = await request(app.getHttpServer())
+      .get(path)
+      .auth(reporter, { type: 'bearer' })
+      .expect(200);
+    const lines = csv.text.trim().split('\r\n');
+    expect(lines).toHaveLength(1003);
+    expect(new Set(lines.slice(1).map((line) => line.split(',')[0])).size).toBe(
+      1002,
+    );
+    expect(csv.headers['content-disposition']).toContain(`${key}.csv`);
+    expect(csv.headers['cache-control']).toBe('no-store');
+    const empty = await request(app.getHttpServer())
+      .get(path)
+      .query({ endDate: '2020-09-14' })
+      .auth(reporter, { type: 'bearer' })
+      .expect(200);
+    expect(empty.text.trim().split('\r\n')).toHaveLength(1);
+  });
 
   it('serves health, readiness, OpenAPI, and exact-origin CORS', async () => {
     await request(app.getHttpServer()).get('/v6/health').expect(200);

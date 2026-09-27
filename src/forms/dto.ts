@@ -155,8 +155,27 @@ export class SubmissionDto {
   kafka?: boolean;
 }
 
-/** Defines bounded keyset pagination for reporting; only cursors in this version are accepted. */
-export class PageDto {
+/** Validates inclusive UTC calendar dates shared by submission tables and full CSV exports. */
+export class ReportDatesDto {
+  @ApiPropertyOptional({
+    example: '2026-09-01',
+    description: 'Inclusive UTC date (YYYY-MM-DD).',
+  })
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  startDate?: string;
+
+  @ApiPropertyOptional({
+    example: '2026-09-30',
+    description: 'Inclusive UTC date (YYYY-MM-DD).',
+  })
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  endDate?: string;
+}
+
+/** Defines bounded keyset pagination and inclusive UTC dates for private reporting. */
+export class PageDto extends ReportDatesDto {
   @ApiPropertyOptional({ default: 100, maximum: 1000 })
   @Type(() => Number)
   @IsInt()

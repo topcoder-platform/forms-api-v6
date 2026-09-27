@@ -102,3 +102,7 @@ TEST_DATABASE_URL=postgresql://forms:forms_local@127.0.0.1:5546/forms?schema=for
 ```
 
 Coverage includes actual PostgreSQL writes, all field types, SQL views, CSV output, concurrent idempotency, immutable versions, JWT access, required-answer/ownership constraints, Payload synchronization over HTTP, and browser rendering/retry behavior. CI executes the same checks with PostgreSQL 17.
+
+Forms portal endpoints, inclusive UTC date filtering, and full CSV exports are
+specified in [docs/api.md](docs/api.md). The development-only `/lets-talk` migration,
+Kafka contract, seed command, and rollout order are in [docs/lets-talk.md](docs/lets-talk.md).

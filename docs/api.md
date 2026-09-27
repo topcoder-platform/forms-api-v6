@@ -131,3 +131,32 @@ Envelope/DTO errors use Nest's standard `message` array. Clients should handle b
 | 500/503 | Service/database failure; preserve input and retry appropriately.   |
 
 Reports are ordered by creation timestamp and UUID. Pagination does not create a database snapshot; use SQL/reporting jobs when an exact export snapshot is required. CSV is quoted and formula-prefixed text is neutralized for spreadsheets; arrays are JSON-encoded only in the exported CSV cell. SQL data remains fully relational.
+
+## Forms portal reporting
+
+All routes below require **Report** access and return `Cache-Control: no-store`.
+They do not grant form management privileges.
+
+| Route (under `/v6`) | Result |
+| --- | --- |
+| `GET /forms/reports/directory?after=key` | `{ data: [{ key, title }], nextCursor }`; 100 forms per page, most recent published/retired title, no drafts. |
+| `GET /forms/:key/submissions?limit=25&after=uuid&startDate=2026-09-01&endDate=2026-09-30` | `{ form, columns, labels, data, total, nextCursor }` across all published/retired revisions. |
+| `GET /forms/:key/submissions/export?startDate=2026-09-01&endDate=2026-09-30` | Complete streaming CSV with one header, independently of the table page. Omit both dates for all data. |
+
+Dates are optional **inclusive UTC calendar dates** in `YYYY-MM-DD`; an end date
+includes timestamps through 23:59:59.999. Invalid calendar dates and reversed
+ranges return 400. Existing version-specific JSON/CSV endpoints accept these same
+filters. A cursor must belong to the selected form/revision and date range.
+
+The all-revision report unions field keys in first-seen order. `labels` contains
+the latest published label for each key; absent answers are null. Existing metadata
+columns (`submission_id`, `submitted_at`, `member_id`, `source_page`, `form_version`)
+remain present. Rows sort by timestamp then UUID; `total` counts matching rows
+before pagination. Decimal values remain strings and multi-select values remain
+arrays. A field reused with a different type retains each revision's original value.
+
+The complete export accepts only date filters, not `limit` or `after`. It fetches
+1,000 rows per batch, applies backpressure, stops when the client disconnects, and
+uses the established CSV escaping/formula protection. Columns and an upper
+submission timestamp are captured at export start. This is not a repeatable-read
+database snapshot: transactions already in flight can commit during export.

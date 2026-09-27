@@ -24,6 +24,10 @@ class SafeExceptionFilter implements ExceptionFilter {
    */
   catch(exception: unknown, host: ArgumentsHost): void {
     const response = host.switchToHttp().getResponse<Response>();
+    if (response.headersSent) {
+      response.destroy();
+      return;
+    }
     if (exception instanceof HttpException) {
       const body = exception.getResponse();
       response
