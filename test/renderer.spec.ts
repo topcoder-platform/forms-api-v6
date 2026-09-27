@@ -63,7 +63,7 @@ describe('embedded React form', () => {
     });
   });
 
-  it('keeps entered values and reuses the same retry key after a lost response', async () => {
+  it('keeps Kafka and hidden answers unchanged on retries after a lost response', async () => {
     const fetcher = vi
       .fn()
       .mockResolvedValueOnce(Response.json(schema))
@@ -77,9 +77,12 @@ describe('embedded React form', () => {
         createElement(TopcoderForm, {
           formKey: 'signup',
           apiBaseUrl: 'https://forms.example/v6',
+          kafka: true,
+          hiddenAnswers: { budget: '0' },
         }),
       ),
     );
+    expect(container.querySelector('[name="budget"]')).toBeNull();
     const email = container.querySelector<HTMLInputElement>('[name="email"]')!;
     email.value = 'member@example.com';
     container.querySelector<HTMLSelectElement>('[name="updates"]')!.value =
@@ -108,8 +111,9 @@ describe('embedded React form', () => {
     expect(retry.body).toBe(first.body);
     expect(retry.headers).toEqual(first.headers);
     expect(JSON.parse(String(first.body))).toMatchObject({
+      kafka: true,
       version: 3,
-      answers: { updates: false },
+      answers: { updates: false, budget: '0' },
       website: '',
     });
   });

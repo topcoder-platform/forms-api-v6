@@ -1,0 +1,124 @@
+{
+  "title": "Let’s talk",
+  "description": "",
+  "successMessage": "Thanks for submitting the form. Someone will reach out to you soon.",
+  "access": "ANONYMOUS",
+  "fields": [
+    {
+      "key": "interested_in",
+      "label": "What are you interested in?",
+      "type": "SINGLE_SELECT",
+      "required": true,
+      "options": [
+        {
+          "key": "crowdsourcing",
+          "label": "Crowdsourced Innovation"
+        },
+        {
+          "key": "app_design_development",
+          "label": "App Design and Development"
+        },
+        {
+          "key": "freelancers",
+          "label": "Flexible Talent Access"
+        }
+      ]
+    },
+    {
+      "key": "firstname",
+      "label": "First name",
+      "type": "TEXT",
+      "required": true,
+      "maxLength": 500
+    },
+    {
+      "key": "lastname",
+      "label": "Last name",
+      "type": "TEXT",
+      "required": true,
+      "maxLength": 500
+    },
+    {
+      "key": "email",
+      "label": "Work Email",
+      "type": "EMAIL",
+      "required": true,
+      "maxLength": 254
+    },
+    {
+      "key": "company",
+      "label": "Company name",
+      "type": "TEXT",
+      "required": true,
+      "maxLength": 500
+    },
+    {
+      "key": "briefly_describe_your_inquiry",
+      "label": "What can we help you with?",
+      "type": "TEXTAREA",
+      "required": false,
+      "maxLength": 10000
+    },
+    {
+      "key": "leadsource",
+      "label": "Leadsource",
+      "type": "SINGLE_SELECT",
+      "required": false,
+      "options": [
+        {
+          "key": "landing_page",
+          "label": "Landing Page"
+        }
+      ]
+    },
+    {
+      "key": "source__c",
+      "label": "Landing Page Link",
+      "type": "TEXT",
+      "required": false,
+      "maxLength": 500
+    },
+    {
+      "key": "lead_source_for_campaign__c",
+      "label": "Lead Source For Campaign  C",
+      "type": "TEXT",
+      "required": false,
+      "maxLength": 500
+    },
+    {
+      "key": "primary_campaign__c",
+      "label": "Primary Campaign  C",
+      "type": "TEXT",
+      "required": false,
+      "maxLength": 500
+    },
+    {
+      "key": "insta_page_name__c",
+      "label": "Insta Page Name  C",
+      "type": "TEXT",
+      "required": false,
+      "maxLength": 500
+    },
+    {
+      "key": "utm_medium__c",
+      "label": "Utm Medium  C",
+      "type": "TEXT",
+      "required": false,
+      "maxLength": 500
+    },
+    {
+      "key": "utm_campaign__c",
+      "label": "Utm Campaign  C",
+      "type": "TEXT",
+      "required": false,
+      "maxLength": 500
+    },
+    {
+      "key": "utm_source__c",
+      "label": "Utm Source  C",
+      "type": "TEXT",
+      "required": false,
+      "maxLength": 500
+    }
+  ]
+}

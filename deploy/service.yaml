@@ -54,7 +54,7 @@ Parameters:
     Description: Bootstrap at zero; deploy after database migration succeeds.
   CorsOrigins:
     Type: String
-    Default: https://www.topcoder-dev.com
+    Default: https://www.topcoder-dev.com,https://reports.topcoder-dev.com,https://platform-ui.topcoder-dev.com
   ParameterPrefix:
     Type: String
     Default: /config/forms-api-v6/appvar

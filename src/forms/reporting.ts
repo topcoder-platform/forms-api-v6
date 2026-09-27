@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { FieldType } from '../generated/prisma/enums';
-import { KEY_PATTERN } from './dto';
+import { KEY_PATTERN, type ReportDatesDto } from './dto';
 import type { StoredField } from './validation';
 
 /**
@@ -101,4 +101,35 @@ export function csvCell(value: unknown): string {
   if (/^[\s\u0000-\u001f]*[=+\-@]/.test(text) || /^[\t\r\n]/.test(text))
     text = `'${text}`;
   return `"${text.replace(/"/g, '""')}"`;
+}
+
+/**
+ * Converts report date inputs to a half-open UTC timestamp range for database queries.
+ * @param dates Optional inclusive calendar dates from table/export requests.
+ * @returns Prisma-compatible lower inclusive and upper exclusive bounds.
+ * @throws BadRequestException for nonexistent calendar dates or a reversed range.
+ */
+export function reportDateRange(dates: ReportDatesDto): {
+  gte?: Date;
+  lt?: Date;
+} {
+  const bounds: { gte?: Date; lt?: Date } = {};
+  for (const [key, value] of Object.entries(dates)) {
+    if ((key !== 'startDate' && key !== 'endDate') || value === undefined)
+      continue;
+    const date = new Date(`${value}T00:00:00.000Z`);
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(value) ||
+      !Number.isFinite(date.getTime()) ||
+      date.toISOString().slice(0, 10) !== value
+    )
+      throw new BadRequestException(
+        'Dates must be valid YYYY-MM-DD calendar dates.',
+      );
+    if (key === 'startDate') bounds.gte = date;
+    else bounds.lt = new Date(date.getTime() + 86400000);
+  }
+  if (bounds.gte && bounds.lt && bounds.gte >= bounds.lt)
+    throw new BadRequestException('Start date must not be after end date.');
+  return bounds;
 }
