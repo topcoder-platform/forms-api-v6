@@ -32,14 +32,19 @@ The copy refuses a nonempty target. The source is retained and fenced against fu
 
 ## Releases
 
-`.circleci/config.yml` runs lint, build, type checks, unit tests, migrations, and
-real-PostgreSQL integration tests. After verification, `develop` deploys dev and
-`master` deploys production. Both use Topcoder's `org-global` context and pinned
-`tc-deploy-scripts` credential helper, matching the other services. Deployments are
-serialized separately per environment. The CircleCI project must be connected in
-the Topcoder organization to use that shared context.
+`.circleci/config.yml` follows the other v6 services' Docker build flow: checkout,
+remote Docker setup, deployment dependency installation, image build, and release.
+Node, pnpm, dependency installation, Prisma generation, and TypeScript compilation
+run inside the Docker build. There is no CircleCI PostgreSQL service or separate
+verification job. `develop` builds and deploys dev; `master` builds and deploys
+production. Both use Topcoder's `org-global` context and pinned `tc-deploy-scripts`
+credential helper. Forms retains its runtime and migration images and
+`release.py` deployment process: target-database migrations still run before
+runtime promotion. Deployments are serialized separately per environment. The
+CircleCI project must be connected in the Topcoder organization to use that shared
+context.
 
-The same release command can run from an authorized workstation:
+Local checks and the same release command can run from an authorized workstation:
 
 ```sh
 nvm use
