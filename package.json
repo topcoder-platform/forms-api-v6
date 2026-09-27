@@ -40,7 +40,8 @@
     "jose": "6.2.10",
     "pg": "8.23.0",
     "reflect-metadata": "0.2.2",
-    "rxjs": "7.8.2"
+    "rxjs": "7.8.2",
+    "tc-bus-api-wrapper": "github:topcoder-platform/tc-bus-api-wrapper#297a9c0adcdb97661257e7825bee9c3f5578b833"
   },
   "devDependencies": {
     "@eslint/js": "9.39.2",

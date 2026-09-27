@@ -8,6 +8,10 @@ import {
 } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
 import { isUUID } from 'class-validator';
+import {
+  EventBusService,
+  type FormSubmittedPayload,
+} from '../integrations/event-bus.service';
 import { DbService } from '../db.service';
 import { Prisma } from '../generated/prisma/client';
 import { FieldType, FormStatus } from '../generated/prisma/enums';
@@ -31,14 +35,17 @@ type Definition = Prisma.FormVersionGetPayload<{
   include: typeof definitionInclude;
 }>;
 
-/** Manages immutable form revisions, publication, typed submission writes, and private reports. */
+/** Manages immutable form revisions, publication, typed submission writes, optional Bus API events, and private reports. */
 @Injectable()
 export class FormsService {
   /**
    * Creates the domain service used by the HTTP controller.
-   * @param db Shared Prisma connection. @throws No errors.
+   * @param db Shared Prisma connection. @param events Optional submission event publisher. @throws No errors.
    */
-  constructor(private readonly db: DbService) {}
+  constructor(
+    private readonly db: DbService,
+    private readonly events: EventBusService,
+  ) {}
 
   /**
    * Idempotently registers a specifically named form.
@@ -262,10 +269,10 @@ export class FormsService {
   }
 
   /**
-   * Validates against the pinned version and saves the entire typed submission in one transaction.
-   * @param key Form key. @param input Answer envelope. @param idempotencyKey Caller-generated UUID. @param actor Optional verified member.
+   * Saves the typed submission atomically, then publishes requested events after commit.
+   * @param key Form key. @param input Answer envelope with optional Kafka opt-in. @param idempotencyKey Caller-generated UUID. @param actor Optional verified member.
    * @returns Receipt without answers or identity; exact retries return the original receipt even after retirement.
-   * @throws BadRequestException for invalid answers; UnauthorizedException for missing member identity; ForbiddenException for machine submissions; ConflictException for stale versions or changed retry payloads.
+   * @throws BadRequestException for invalid answers; UnauthorizedException for missing member identity; ForbiddenException for machine submissions; ConflictException for stale versions or changed retry payloads; ServiceUnavailableException for Bus API failure (retry the same request).
    */
   async submit(
     key: string,
@@ -281,7 +288,7 @@ export class FormsService {
       throw new ForbiddenException(
         'Machine tokens cannot submit visitor forms.',
       );
-    return this.db.$transaction(
+    const result = await this.db.$transaction(
       async (tx) => {
         await this.lockForm(tx, key);
         const definition = await this.findVersion(tx, key, input.version);
@@ -292,10 +299,20 @@ export class FormsService {
         const validated = validateAnswers(definition.fields, input.answers);
         const requestHash = digest({
           version: input.version,
+          // Preserve hashes for existing submissions that did not request Kafka.
+          ...(input.kafka === true ? { kafka: true } : {}),
           memberId: actor?.memberId ?? null,
           sourcePage: input.sourcePage ?? null,
           answers: validated.map(({ field, value }) => [field.key, value]),
         });
+        const eventData = {
+          formKey: key,
+          memberId: actor?.memberId ?? null,
+          sourcePage: input.sourcePage ?? null,
+          answers: Object.fromEntries(
+            validated.map(({ field, value }) => [field.key, value]),
+          ),
+        };
         const existing = await tx.submission.findUnique({
           where: {
             versionId_idempotencyKey: {
@@ -310,6 +327,7 @@ export class FormsService {
               'Idempotency-Key was already used for a different submission.',
             );
           return {
+            eventData,
             id: existing.id,
             version: input.version,
             submittedAt: existing.createdAt,
@@ -326,15 +344,54 @@ export class FormsService {
             requestHash,
             memberId: actor?.memberId,
             sourcePage: input.sourcePage,
+            ...(input.kafka === true ? { event: { create: {} } } : {}),
           },
         });
         for (const answer of validated)
           await this.writeAnswer(tx, submission.id, definition.id, answer);
         return {
+          eventData,
           id: submission.id,
           version: input.version,
           submittedAt: submission.createdAt,
         };
+      },
+      { timeout: 15000 },
+    );
+    const { eventData, ...receipt } = result;
+    if (input.kafka === true) {
+      await this.publishSubmission({
+        ...eventData,
+        submissionId: receipt.id,
+        version: receipt.version,
+        submittedAt: receipt.submittedAt.toISOString(),
+      });
+    }
+    return receipt;
+  }
+
+  /**
+   * Serializes delivery attempts for a committed submission across service replicas.
+   * @param payload Validated submission data with its stable receipt identity.
+   * @returns Nothing once delivery is recorded or was already completed.
+   * @throws Bus API or database errors; an identical submission retry resumes delivery.
+   */
+  private async publishSubmission(
+    payload: FormSubmittedPayload,
+  ): Promise<void> {
+    await this.db.$transaction(
+      async (tx) => {
+        const [event] = await tx.$queryRaw<{ publishedAt: Date | null }[]>`
+        SELECT "publishedAt" FROM "forms"."SubmissionEvent"
+        WHERE "submissionId" = ${payload.submissionId}::uuid FOR UPDATE
+      `;
+        if (!event) throw new Error('Submission event receipt is missing.');
+        if (event.publishedAt) return;
+        await this.events.publishSubmission(payload);
+        await tx.submissionEvent.update({
+          where: { submissionId: payload.submissionId },
+          data: { publishedAt: new Date() },
+        });
       },
       { timeout: 15000 },
     );

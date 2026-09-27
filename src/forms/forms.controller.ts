@@ -107,7 +107,7 @@ export class FormsController {
     return this.forms.retire(key, version, request.actor!);
   }
 
-  /** Saves an envelope under a UUID retry key; returns a receipt or validation, authentication, stale-version, or conflict errors. */
+  /** Saves an envelope under a UUID retry key; returns a receipt or validation, authentication, stale-version, conflict, or optional Bus API delivery errors. */
   @Post(':key/submissions')
   @Access('public')
   @ApiHeader({
@@ -117,7 +117,8 @@ export class FormsController {
       'One random UUID per attempted submission, reused unchanged on network retries.',
   })
   @ApiOperation({
-    summary: 'Submit against the exact version displayed to the visitor',
+    summary:
+      'Submit against the displayed version; optionally publish with kafka=true',
   })
   submit(
     @Param('key') key: string,

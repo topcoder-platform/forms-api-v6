@@ -129,6 +129,7 @@ model Submission {
   createdAt      DateTime    @default(now()) @db.Timestamptz(3)
   version        FormVersion @relation(fields: [versionId], references: [id], onDelete: Restrict)
   answers        Answer[]
+  event          SubmissionEvent?
 
   @@unique([versionId, idempotencyKey])
   @@unique([id, versionId])
@@ -174,6 +175,15 @@ model AnswerSelection {
 
   @@id([answerId, optionId])
   @@index([optionId])
+
+  @@schema("forms")
+}
+
+/// Delivery receipt for an opted-in submission; separate from its immutable envelope.
+model SubmissionEvent {
+  submissionId String     @id @db.Uuid
+  publishedAt  DateTime?   @db.Timestamptz(3)
+  submission   Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
 
   @@schema("forms")
 }

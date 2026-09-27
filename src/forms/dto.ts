@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayMinSize,
@@ -141,6 +141,18 @@ export class SubmissionDto {
   @IsString()
   @MaxLength(0)
   website?: string;
+  @ApiPropertyOptional({
+    type: Boolean,
+    default: false,
+    description:
+      'Publish the accepted submission to form.submitted through Bus API.',
+  })
+  @IsOptional()
+  @Transform(({ value }) =>
+    value === 'true' ? true : value === 'false' ? false : value,
+  )
+  @IsBoolean()
+  kafka?: boolean;
 }
 
 /** Defines bounded keyset pagination for reporting; only cursors in this version are accepted. */

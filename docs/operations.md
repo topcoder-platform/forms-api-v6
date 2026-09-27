@@ -20,6 +20,28 @@ All Forms tables, enums, functions, migration history, and reporting views live 
 
 The Prisma client uses the PostgreSQL driver adapter and generated TypeScript code. Connection URLs are configured in `prisma.config.ts`, consistent with the [Prisma 7 migration guide](https://www.prisma.io/docs/orm/more/upgrade-guides/upgrading-versions/upgrading-to-prisma-7). Client generation and compilation require no live database. Migrations and runtime require `DATABASE_URL`.
 
+## Outbound Bus API
+
+Ordinary submissions need no Bus API configuration. To accept `kafka=true` submissions successfully, configure:
+
+| Variable | Meaning |
+| --- | --- |
+| `BUSAPI_URL` | HTTP(S) API base ending in `/v6`, e.g. `https://api.topcoder-dev.com/v6`. The shared wrapper appends `/bus/events`. |
+| `AUTH0_URL` | Auth0 token endpoint used by the shared Topcoder M2M client. |
+| `AUTH0_AUDIENCE` | Outbound M2M audience; separate from inbound `AUTH_AUDIENCE`. |
+| `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET` | Service credentials authorized to publish Bus API events. Required when `BUSAPI_URL` is set. |
+| `TOKEN_CACHE_TIME` | Optional M2M token cache duration in milliseconds, 0–86400000; otherwise uses the wrapper default. |
+| `AUTH0_PROXY_SERVER_URL` | Optional Auth0 proxy supported by the shared wrapper. |
+| `KAFKA_ERROR_TOPIC` | Wrapper error-topic setting, default `common.error.reporting`; submission topic is always `form.submitted`. |
+
+For ECS, expose the five required Bus API/Auth0 settings to the runtime container through its task-definition secrets (the existing template only maps inbound authentication and database settings). Store them under the service parameter prefix so its existing SSM read permissions apply; never put credentials in the template.
+
+Apply migration `20260928010000_submission_events` before deploying this version. It adds the `forms.SubmissionEvent` delivery table; it does not change existing submissions or reporting views. The service role needs SELECT/INSERT/UPDATE on this table. Ensure `form.submitted` is available through Bus API and downstream consumers deduplicate on the payload's `submissionId`.
+
+Delivery failures return 503 after saving the submission; callers must retry the same body and key. Pending attempts have `publishedAt IS NULL` in `forms.SubmissionEvent`. No background delivery job is included. Provider error bodies, credentials, and answers are not logged by the publisher. Delivery uses a separate transaction with a row lock and a 15-second transaction timeout; failure to record an accepted event may result in redelivery.
+
+The shared wrapper and its Topcoder core dependency are pinned to Git commits. `pnpm-workspace.yaml` allows Git subdependencies for this integration and explicitly skips optional native DTrace builds.
+
 ## Database access
 
 The checked-in migrations create tables, enums, foreign keys, CHECKs, indexes, and lifecycle/answer triggers inside `forms`. Use `pnpm migrate:deploy`; **do not use `prisma db push`**, which does not reproduce the custom integrity triggers and checks.
