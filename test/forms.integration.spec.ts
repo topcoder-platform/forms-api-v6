@@ -1,5 +1,13 @@
 import 'reflect-metadata';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest';
 import request from 'supertest';
 import { randomUUID } from 'node:crypto';
 import { createApp } from '../src/bootstrap';
@@ -14,6 +22,9 @@ import {
 } from './fixtures';
 import { syncForm, type ManagedForm } from '../integrations/payload/forms';
 
+const { postEvent } = vi.hoisted(() => ({ postEvent: vi.fn() }));
+vi.mock('tc-bus-api-wrapper', () => ({ default: () => ({ postEvent }) }));
+
 describe('forms API with real PostgreSQL', () => {
   let app: Awaited<ReturnType<typeof createApp>>;
   let db: DbService;
@@ -23,7 +34,17 @@ describe('forms API with real PostgreSQL', () => {
   let machine: string;
 
   beforeAll(async () => {
-    app = await createApp(testConfig());
+    app = await createApp({
+      ...testConfig(),
+      busApi: {
+        BUSAPI_URL: 'https://bus.test/v6',
+        AUTH0_URL: 'https://auth.test',
+        AUTH0_AUDIENCE: 'https://api.test',
+        AUTH0_CLIENT_ID: 'test-client',
+        AUTH0_CLIENT_SECRET: 'test-secret',
+        KAFKA_ERROR_TOPIC: 'common.error.reporting',
+      },
+    });
     await app.listen(0, '127.0.0.1');
     db = app.get(DbService);
     admin = await token({ roles: ['Administrator'] });
@@ -36,6 +57,9 @@ describe('forms API with real PostgreSQL', () => {
       gty: 'client-credentials',
       scope: 'manage:forms read:forms-submissions',
     });
+  });
+  beforeEach(() => {
+    postEvent.mockReset().mockResolvedValue(undefined);
   });
   afterAll(async () => {
     if (app) await app.close();
@@ -70,7 +94,9 @@ describe('forms API with real PostgreSQL', () => {
     await request(app.getHttpServer()).get('/v6/health').expect(200);
     await request(app.getHttpServer()).get('/v6/health/ready').expect(200);
     await request(app.getHttpServer()).get('/v6/docs-json').expect(200);
-    await request(app.getHttpServer()).get('/v6/forms/health/ready').expect(200);
+    await request(app.getHttpServer())
+      .get('/v6/forms/health/ready')
+      .expect(200);
     const docs = await request(app.getHttpServer())
       .get('/v6/forms/api-docs')
       .expect(200);
@@ -177,6 +203,185 @@ describe('forms API with real PostgreSQL', () => {
       .send({ version: 1, answers: answers() })
       .expect(201);
     expect(replay.body.id).toBe(responses[0].body.id);
+  });
+
+  it.each([true, 'true'])(
+    'publishes canonical committed data when kafka=%s',
+    async (kafka) => {
+      const key = await create();
+      postEvent.mockImplementationOnce(async (event) => {
+        // A separate DB connection must see the full submission before publication.
+        expect(
+          await db.answer.count({
+            where: { submissionId: event.payload.submissionId },
+          }),
+        ).toBe(9);
+      });
+      const receipt = await request(app.getHttpServer())
+        .post(`/v6/forms/${key}/submissions`)
+        .auth(member, { type: 'bearer' })
+        .set('Idempotency-Key', randomUUID())
+        .send({
+          version: 1,
+          answers: answers(),
+          sourcePage: '/events',
+          website: '',
+          kafka,
+        })
+        .expect(201);
+      expect(postEvent).toHaveBeenCalledExactlyOnceWith({
+        topic: 'form.submitted',
+        originator: 'forms-api-v6',
+        timestamp: receipt.body.submittedAt,
+        'mime-type': 'application/json',
+        key: receipt.body.id,
+        payload: {
+          submissionId: receipt.body.id,
+          formKey: key,
+          version: 1,
+          submittedAt: receipt.body.submittedAt,
+          memberId: '12345',
+          sourcePage: '/events',
+          answers: { ...answers(), interests: ['design', 'dev'] },
+        },
+      });
+      expect(Object.keys(receipt.body).sort()).toEqual([
+        'id',
+        'submittedAt',
+        'version',
+      ]);
+      expect(
+        (
+          await db.submissionEvent.findUniqueOrThrow({
+            where: { submissionId: receipt.body.id },
+          })
+        ).publishedAt,
+      ).not.toBeNull();
+    },
+  );
+
+  it.each([undefined, false, 'false'])(
+    'does not publish when kafka=%s',
+    async (kafka) => {
+      const key = await create();
+      const retryKey = randomUUID();
+      const receipt = await request(app.getHttpServer())
+        .post(`/v6/forms/${key}/submissions`)
+        .set('Idempotency-Key', retryKey)
+        .send({ version: 1, answers: answers(), kafka })
+        .expect(201);
+      expect(postEvent).not.toHaveBeenCalled();
+      expect(
+        await db.submissionEvent.count({
+          where: { submissionId: receipt.body.id },
+        }),
+      ).toBe(0);
+      await request(app.getHttpServer())
+        .post(`/v6/forms/${key}/submissions`)
+        .set('Idempotency-Key', retryKey)
+        .send({ version: 1, answers: answers(), kafka: true })
+        .expect(409);
+      expect(postEvent).not.toHaveBeenCalled();
+    },
+  );
+
+  it('serializes concurrent event retries and prevents changing the Kafka flag', async () => {
+    const key = await create();
+    const retryKey = randomUUID();
+    const body = { version: 1, answers: answers(), kafka: true };
+    const receipts = await Promise.all(
+      Array.from({ length: 5 }, () =>
+        request(app.getHttpServer())
+          .post(`/v6/forms/${key}/submissions`)
+          .set('Idempotency-Key', retryKey)
+          .send(body)
+          .expect(201),
+      ),
+    );
+    expect(new Set(receipts.map((receipt) => receipt.body.id)).size).toBe(1);
+    expect(postEvent).toHaveBeenCalledTimes(1);
+    expect(postEvent.mock.calls[0][0].payload.memberId).toBeNull();
+    await request(app.getHttpServer())
+      .post(`/v6/forms/${key}/submissions`)
+      .set('Idempotency-Key', retryKey)
+      .send({ ...body, kafka: false })
+      .expect(409);
+    await request(app.getHttpServer())
+      .post(`/v6/forms/${key}/submissions`)
+      .set('Idempotency-Key', retryKey)
+      .send({ ...body, answers: { ...answers(), age: 1 } })
+      .expect(409);
+    expect(postEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries failed delivery against the saved submission even after retirement', async () => {
+    const key = await create();
+    const retryKey = randomUUID();
+    const body = { version: 1, answers: answers(), kafka: true };
+    postEvent.mockRejectedValueOnce(new Error('sensitive provider error'));
+    const failure = await request(app.getHttpServer())
+      .post(`/v6/forms/${key}/submissions`)
+      .set('Idempotency-Key', retryKey)
+      .send(body)
+      .expect(503);
+    expect(failure.text).not.toContain('sensitive provider error');
+    const saved = await db.submission.findFirstOrThrow({
+      where: { idempotencyKey: retryKey },
+      include: { event: true },
+    });
+    expect(saved.event?.publishedAt).toBeNull();
+    await request(app.getHttpServer())
+      .post(`/v6/forms/${key}/versions/1/retire`)
+      .auth(admin, { type: 'bearer' })
+      .expect(200);
+    for (let i = 0; i < 2; i++) {
+      const receipt = await request(app.getHttpServer())
+        .post(`/v6/forms/${key}/submissions`)
+        .set('Idempotency-Key', retryKey)
+        .send(body)
+        .expect(201);
+      expect(receipt.body.id).toBe(saved.id);
+    }
+    expect(postEvent).toHaveBeenCalledTimes(2);
+    expect(postEvent.mock.calls[0][0]).toEqual(postEvent.mock.calls[1][0]);
+    expect(
+      await db.submission.count({ where: { idempotencyKey: retryKey } }),
+    ).toBe(1);
+  });
+
+  it('does not publish invalid, unauthorized, or stale submissions', async () => {
+    const key = await create();
+    for (const kafka of ['yes', 'TRUE', 1, 0, {}, []]) {
+      await request(app.getHttpServer())
+        .post(`/v6/forms/${key}/submissions`)
+        .set('Idempotency-Key', randomUUID())
+        .send({ version: 1, answers: answers(), kafka })
+        .expect(400);
+    }
+    await request(app.getHttpServer())
+      .post(`/v6/forms/${key}/submissions`)
+      .set('Idempotency-Key', randomUUID())
+      .send({ version: 1, answers: { ...answers(), age: 'bad' }, kafka: true })
+      .expect(400);
+    await request(app.getHttpServer())
+      .post(`/v6/forms/${key}/submissions`)
+      .set('Idempotency-Key', randomUUID())
+      .auth(machine, { type: 'bearer' })
+      .send({ version: 1, answers: answers(), kafka: true })
+      .expect(403);
+    await request(app.getHttpServer())
+      .post(`/v6/forms/${key}/versions/1/retire`)
+      .auth(admin, { type: 'bearer' })
+      .expect(200);
+    await request(app.getHttpServer())
+      .post(`/v6/forms/${key}/submissions`)
+      .set('Idempotency-Key', randomUUID())
+      .send({ version: 1, answers: answers(), kafka: true })
+      .expect(409);
+    expect(postEvent).not.toHaveBeenCalled();
+    expect(
+      await db.submission.count({ where: { version: { form: { key } } } }),
+    ).toBe(0);
   });
 
   it('rejects malformed, unknown, invalid, and missing fields atomically', async () => {

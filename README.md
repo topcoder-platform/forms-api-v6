@@ -66,7 +66,8 @@ Stop the Compose API first if it already occupies port 3006. `pnpm start:dev` us
 3. Publish it. The API creates `forms.event_interest_v1` transactionally.
 4. Add a Payload form block referencing `event_interest` to a content page.
 5. The website fetches the current API schema and submits the exact displayed revision with a UUID `Idempotency-Key`.
-6. Read private paginated JSON/CSV reports or query the SQL view with a reporting database role.
+6. Optionally include `"kafka": true` alongside the submitted answers to publish a `form.submitted` event through Bus API; see [the event contract and retry behavior](docs/api.md#optional-kafka-publication).
+7. Read private paginated JSON/CSV reports or query the SQL view with a reporting database role.
 
 Published definitions are immutable. Changes use a new sequential revision; publication retires the previous one. An already-open older page receives a 409 and must reload. Historical reports remain available. Exact retries of accepted submissions return the original receipt, including after retirement.
 

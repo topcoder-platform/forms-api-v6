@@ -69,9 +69,42 @@ Idempotency-Key: 6b3d585c-f134-4e06-a6d5-6ea42fc1c7ce
 
 Receipts contain no answers or member details. All answers must belong to the pinned stored revision; client-supplied field definitions and extra answer keys are rejected. Server validation does not coerce number or boolean strings. Decimal values are exact strings; multi-select answers are arrays of option keys. Every answer and its selections commit atomically with the envelope.
 
+## Optional Kafka publication
+
+Include `"kafka": true` in the submission body alongside `version`, `answers`, and `sourcePage` to publish the accepted submission to **`form.submitted`** through the authenticated Topcoder Bus API. The exact string `"true"` is also accepted; omitted, `false`, or `"false"` does not publish. Other non-null values are rejected. This is envelope metadata, not an answer field or query parameter. Answer values retain their strict type validation.
+
+```json
+{
+  "version": 1,
+  "answers": { "email": "member@example.com" },
+  "sourcePage": "/events",
+  "kafka": true
+}
+```
+
+The Bus API envelope uses `topic: "form.submitted"`, `originator: "forms-api-v6"`, `mime-type: "application/json"`, the submission timestamp, and the submission UUID as `key`. Its `payload` is:
+
+```json
+{
+  "submissionId": "c1ab5d27-722a-431f-a811-46737109de1f",
+  "formKey": "event_interest",
+  "version": 1,
+  "submittedAt": "2026-09-28T01:00:00.000Z",
+  "memberId": null,
+  "sourcePage": "/events",
+  "answers": { "email": "member@example.com" }
+}
+```
+
+Answers use their validated, canonical values (including exact decimal strings, booleans, numbers, date strings, and option keys); omitted optional answers stay omitted. Member identity comes from verified claims. The honeypot and Kafka flag are excluded from the event. The HTTP receipt remains unchanged.
+
+Publication happens only after the submission and all answers commit. A successful delivery is recorded separately and identical retries, including concurrent retries, do not publish again. Changing the Kafka opt-in for an existing retry key returns 409; omission and false are equivalent and preserve compatibility with older submissions.
+
+If Bus API is unavailable or unconfigured, the submission remains saved and the request returns **503**. Retry the identical body and `Idempotency-Key` to resume delivery, even after retirement. There is no background retry worker. A crash or lost acknowledgement after Bus API accepts an event but before the delivery receipt commits can cause redelivery; consumers must deduplicate by `submissionId`. Invalid or rejected submissions never publish.
+
 ## Retry and error handling
 
-Generate one cryptographically random UUID for a logical submission attempt. Reuse it with the same revision, answers, member identity, and source page after a timeout or lost response. The service canonicalizes decimals and multi-select order before hashing. An identical retry returns the original receipt; changed content with that key returns 409. This key remains reserved while the submission is retained.
+Generate one cryptographically random UUID for a logical submission attempt. Reuse it with the same revision, answers, member identity, source page, and Kafka opt-in after a timeout or lost response. The service canonicalizes decimals and multi-select order before hashing. An identical retry returns the original receipt; changed content with that key returns 409. This key remains reserved while the submission is retained.
 
 A previously accepted attempt can be retried after a version is retired. A new attempt targeting a draft/retired version returns 409. A member-form retry still requires the member token. The API does not replay a submission under a different member identity.
 

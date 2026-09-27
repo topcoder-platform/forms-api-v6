@@ -1,8 +1,10 @@
 import 'dotenv/config';
+import type { BusApiConfiguration } from 'tc-bus-api-wrapper';
 
 /** Runtime configuration validated once before Nest starts serving requests. */
 export interface AppConfig {
   databaseUrl: string;
+  busApi?: BusApiConfiguration;
   port: number;
   origins: string[];
   authMode: 'hs256' | 'jwks';
@@ -29,9 +31,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     (database.searchParams.has('schema') &&
       database.searchParams.get('schema') !== 'forms')
   ) {
-    throw new Error(
-      'DATABASE_URL must be PostgreSQL using the forms schema.',
-    );
+    throw new Error('DATABASE_URL must be PostgreSQL using the forms schema.');
   }
   database.searchParams.set('schema', 'forms');
   const authMode = env.AUTH_MODE ?? 'jwks';
@@ -62,6 +62,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error('VALID_ISSUERS must contain at least one issuer.');
   return {
     databaseUrl: database.toString(),
+    busApi: readBusConfig(env),
     port: integerSetting(env.PORT ?? '3000', 1, 65535),
     origins,
     authMode,
@@ -107,3 +108,41 @@ function integerSetting(raw: string, min: number, max: number): number {
 }
 
 export const CONFIG = Symbol('forms.config');
+
+/**
+ * Reads optional outbound Bus API settings without requiring them for ordinary forms.
+ * @param env Environment map used by readConfig.
+ * @returns Wrapper configuration when BUSAPI_URL is set, otherwise undefined.
+ * @throws Error for partial credentials, invalid URLs, or invalid cache duration.
+ */
+function readBusConfig(
+  env: NodeJS.ProcessEnv,
+): BusApiConfiguration | undefined {
+  if (!env.BUSAPI_URL?.trim()) return undefined;
+  const url = new URL(env.BUSAPI_URL.trim());
+  url.pathname = url.pathname.replace(/\/+$/, '');
+  if (
+    !['http:', 'https:'].includes(url.protocol) ||
+    !url.pathname.endsWith('/v6') ||
+    url.search ||
+    url.hash ||
+    url.username ||
+    url.password
+  )
+    throw new Error('BUSAPI_URL must be an HTTP(S) API base ending in /v6.');
+  return {
+    BUSAPI_URL: url.toString().replace(/\/$/, ''),
+    AUTH0_URL: required(env, 'AUTH0_URL'),
+    AUTH0_AUDIENCE: required(env, 'AUTH0_AUDIENCE'),
+    AUTH0_CLIENT_ID: required(env, 'AUTH0_CLIENT_ID'),
+    AUTH0_CLIENT_SECRET: required(env, 'AUTH0_CLIENT_SECRET'),
+    KAFKA_ERROR_TOPIC:
+      env.KAFKA_ERROR_TOPIC?.trim() || 'common.error.reporting',
+    ...(env.TOKEN_CACHE_TIME
+      ? { TOKEN_CACHE_TIME: integerSetting(env.TOKEN_CACHE_TIME, 0, 86400000) }
+      : {}),
+    ...(env.AUTH0_PROXY_SERVER_URL?.trim()
+      ? { AUTH0_PROXY_SERVER_URL: env.AUTH0_PROXY_SERVER_URL.trim() }
+      : {}),
+  };
+}
