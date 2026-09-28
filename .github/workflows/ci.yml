@@ -19,6 +19,11 @@ jobs:
       TEST_DATABASE_URL: postgresql://forms:forms_ci@localhost:5432/forms_test?schema=forms
     steps:
       - uses: actions/checkout@v4
+      - name: Verify ECS appvar injection
+        run: |
+          python3 -m venv /tmp/forms-deploy-checks
+          /tmp/forms-deploy-checks/bin/pip install boto3 PyYAML
+          /tmp/forms-deploy-checks/bin/python -m unittest discover -s deploy -p 'test_*.py'
       - name: Select project Node and install pnpm
         shell: bash
         run: |
