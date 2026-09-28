@@ -12,10 +12,8 @@ vi.mock('tc-bus-api-wrapper', () => ({ default: createClient }));
 
 const baseEnv = {
   DATABASE_URL: 'postgresql://localhost/forms',
-  AUTH_MODE: 'hs256',
   AUTH_SECRET: testSecret,
   VALID_ISSUERS: 'https://forms.test',
-  AUTH_AUDIENCE: 'forms-api',
 };
 const busEnv = {
   BUSAPI_URL: 'https://api.topcoder-dev.com/v6/',

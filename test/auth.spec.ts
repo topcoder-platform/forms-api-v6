@@ -8,11 +8,9 @@ import { testSecret } from './fixtures';
 
 const config = readConfig({
   DATABASE_URL: 'postgresql://localhost/forms',
-  AUTH_MODE: 'hs256',
   AUTH_SECRET: testSecret,
   VALID_ISSUERS:
     'https://api.topcoder-dev.com,https://api.topcoder.com,https://forms.test',
-  AUTH_AUDIENCE: 'forms-api',
 });
 
 /**
@@ -94,18 +92,13 @@ describe('Topcoder bearer authentication', () => {
     { exp: undefined },
     { iat: undefined },
     { iss: 'https://untrusted.example' },
-    { iss: 'https://forms.test' },
     { userId: undefined },
     { userId: '' },
     { userId: {} },
-    { userId: 1.5 },
     { userId: 0 },
     { userId: '1'.repeat(21) },
     { sub: '', aud: 'forms-api' },
     { sub: 42, aud: 'forms-api' },
-    { sub: 'auth0|person' },
-    { aud: 'forms-api' },
-    { sub: 'auth0|person', aud: 'wrong-api' },
     { gty: 'client-credentials' },
     { isMachine: true },
     { scope: 'read:forms-submissions', roles: [] },
@@ -125,8 +118,8 @@ describe('Topcoder bearer authentication', () => {
     ).rejects.toMatchObject({ status: 401 });
   });
 
-  it.each(['forms-api', ['another-api', 'forms-api']])(
-    'accepts standard audience %j',
+  it.each(['forms-api', 'browser-client-id', ['another-api', 'forms-api']])(
+    'accepts trusted-issuer audience %j using the shared Topcoder policy',
     async (aud) => {
       expect(await authenticate({ sub: 'auth0|person', aud })).toMatchObject({
         subject: 'auth0|person',

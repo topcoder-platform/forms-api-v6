@@ -9,9 +9,8 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
-import type { JWTPayload, JWTVerifyGetKey } from 'jose' with {
-  'resolution-mode': 'import',
-};
+import jwt from 'jsonwebtoken';
+import { middleware, type AuthenticatorRequest } from 'tc-core-library-js';
 import { CONFIG, type AppConfig } from './config';
 
 export type Permission = 'public' | 'manage' | 'report';
@@ -35,21 +34,28 @@ export interface ActorRequest extends Request {
 /** Validates bearer JWTs and applies the v6 human-role / M2M-scope permission split. */
 @Injectable()
 export class AuthGuard implements CanActivate {
-  private key?: Uint8Array | JWTVerifyGetKey;
+  private readonly authenticator: ReturnType<
+    typeof middleware.jwtAuthenticator
+  >;
 
   /**
    * Injects configuration and route metadata for authentication.
    * @param config Validated JWT settings. @param reflector Nest route metadata reader.
-   * @throws No errors; verification happens per request.
+   * @throws Error when the shared authenticator receives invalid configuration.
    */
   constructor(
     @Inject(CONFIG) private readonly config: AppConfig,
     private readonly reflector: Reflector,
-  ) {}
+  ) {
+    this.authenticator = middleware.jwtAuthenticator({
+      AUTH_SECRET: config.authSecret,
+      VALID_ISSUERS: JSON.stringify(config.issuers),
+    });
+  }
 
   /**
-   * Authenticates standard JWTs or legacy Topcoder HS256 member tokens, then checks route access.
-   * Legacy tokens without sub/aud use their verified userId as the audit subject.
+   * Authenticates HS256/RS256 tokens through the shared Topcoder library, then checks route access.
+   * Legacy tokens without sub use their verified userId as the audit subject.
    * @param context Current HTTP route and request.
    * @returns True after assigning a verified actor, or for an anonymous public request.
    * @throws UnauthorizedException for invalid/missing JWTs; ForbiddenException for insufficient roles/scopes.
@@ -68,46 +74,8 @@ export class AuthGuard implements CanActivate {
     if (!/^Bearer [^\s]+$/i.test(header))
       throw new UnauthorizedException('Invalid Authorization header.');
     try {
-      const { jwtVerify, createRemoteJWKSet } = await import('jose');
-      this.key ??=
-        this.config.authMode === 'hs256'
-          ? new TextEncoder().encode(this.config.authSecret)
-          : createRemoteJWKSet(new URL(this.config.jwksUrl!));
-      const verificationOptions = {
-        algorithms: [this.config.authMode === 'hs256' ? 'HS256' : 'RS256'],
-        issuer: this.config.issuers,
-        requiredClaims: ['exp', 'iat'],
-      };
-      const { payload } =
-        this.key instanceof Uint8Array
-          ? await jwtVerify(header.slice(7), this.key, verificationOptions)
-          : await jwtVerify(header.slice(7), this.key, verificationOptions);
-      // Identity API's legacy member JWTs use userId and omit both sub and aud.
-      // Select this compatibility profile only after signature/issuer verification.
-      const legacyMember =
-        this.config.authMode === 'hs256' &&
-        payload.sub === undefined &&
-        payload.aud === undefined &&
-        /^https:\/\/api\.topcoder(?:-dev)?\.com$/.test(payload.iss ?? '') &&
-        ((typeof payload.userId === 'string' &&
-          /^[1-9]\d{0,19}$/.test(payload.userId)) ||
-          (typeof payload.userId === 'number' &&
-            Number.isSafeInteger(payload.userId) &&
-            payload.userId > 0));
-      if (!legacyMember) {
-        const audiences = Array.isArray(payload.aud)
-          ? payload.aud
-          : [payload.aud];
-        if (!audiences.includes(this.config.audience))
-          throw new Error('Invalid token audience.');
-      }
-      const actor = normalizeActor(
-        legacyMember ? { ...payload, sub: String(payload.userId) } : payload,
-        this.config.claimNamespace,
-      );
-      if (legacyMember && actor.machine)
-        throw new Error('Machine tokens require subject and audience.');
-      request.actor = actor;
+      const payload = await this.authenticate(header.slice(7));
+      request.actor = normalizeActor(payload, this.config.claimNamespace);
     } catch {
       throw new UnauthorizedException('Invalid or expired bearer token.');
     }
@@ -125,18 +93,56 @@ export class AuthGuard implements CanActivate {
       throw new ForbiddenException('Insufficient forms permissions.');
     return true;
   }
+
+  /**
+   * Adapts the standard Topcoder middleware to Nest's 401 handling.
+   * @param token Compact bearer JWT; claims are consumed only after verification.
+   * @returns Verified claims with Topcoder namespaced identities normalized by the library.
+   * @throws Error for unsupported algorithms, invalid tokens or missing time claims.
+   */
+  private async authenticate(token: string): Promise<Record<string, unknown>> {
+    // The shared verifier does not call back for unsupported algorithms.
+    const decoded = jwt.decode(token, { complete: true });
+    if (!decoded || !['HS256', 'RS256'].includes(decoded.header.alg))
+      throw new Error('Unsupported token algorithm.');
+    return new Promise((resolve, reject) => {
+      const request: AuthenticatorRequest = {
+        headers: { authorization: `Bearer ${token}` },
+      };
+      const fail = () => reject(new Error('Token authentication failed.'));
+      const response = {
+        status: () => response,
+        json: fail,
+        send: fail,
+        end: fail,
+      };
+      this.authenticator(request, response, (error?: unknown) => {
+        const payload = request.authUser;
+        if (
+          error ||
+          !payload ||
+          typeof payload.exp !== 'number' ||
+          typeof payload.iat !== 'number'
+        ) {
+          fail();
+          return;
+        }
+        resolve(payload);
+      });
+    });
+  }
 }
 
 /**
  * Converts verified Topcoder/Auth0 claims into the service actor model.
  * @param claims Cryptographically verified claims. @param namespace Exact configured custom-claim prefix.
- * @returns Normalized actor; memberId is absent for machine tokens.
+ * @returns Normalized actor; memberId is absent for machines, and legacy human subjects use memberId.
  * @throws Error if the token lacks a usable subject or contains oversized identity claims.
  */
-export function normalizeActor(claims: JWTPayload, namespace: string): Actor {
-  const subject = claims.sub;
-  if (typeof subject !== 'string' || !subject.trim() || subject.length > 200)
-    throw new Error('Invalid token subject.');
+export function normalizeActor(
+  claims: Record<string, unknown>,
+  namespace: string,
+): Actor {
   const roles = stringList(
     claims.roles ?? claims[`${namespace}roles`],
     ',',
@@ -145,15 +151,24 @@ export function normalizeActor(claims: JWTPayload, namespace: string): Actor {
   const machine =
     claims.gty === 'client-credentials' ||
     claims.isMachine === true ||
-    subject.endsWith('@clients') ||
+    (typeof claims.sub === 'string' && claims.sub.endsWith('@clients')) ||
     (scopes.length > 0 && roles.length === 0);
   const userId = claims.userId ?? claims[`${namespace}userId`];
   const memberId =
-    !machine && (typeof userId === 'string' || typeof userId === 'number')
+    !machine &&
+    (typeof userId === 'string' ||
+      (typeof userId === 'number' && Number.isSafeInteger(userId)))
       ? String(userId)
       : undefined;
   if (memberId && memberId.length > 200)
     throw new Error('Invalid member identity.');
+  const subject =
+    claims.sub ??
+    (!machine && memberId && /^[1-9]\d*$/.test(memberId)
+      ? memberId
+      : undefined);
+  if (typeof subject !== 'string' || !subject.trim() || subject.length > 200)
+    throw new Error('Invalid token subject.');
   return { subject, memberId, machine, roles, scopes };
 }
 

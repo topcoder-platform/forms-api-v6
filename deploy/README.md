@@ -11,6 +11,8 @@ require database availability. OpenAPI UI is `/v6/forms/api-docs`, with JSON at
 `/v6/forms/api-docs-json`. The root forms list requires an administrator token;
 published schemas and anonymous submissions are public.
 
+Inbound JWT handling uses the same `tc-core-library-js` middleware as the other v6 APIs. Both legacy HS256 and Auth0 RS256 tokens are supported in one deployment. The Forms `VALID_ISSUERS` parameter must contain `https://auth.topcoder-dev.com/` for dev browser sign-in; the library resolves its JWKS and normalizes the dev namespaced roles/user ID. Existing `AUTH_MODE` and `AUTH_AUDIENCE` task settings are ignored by the new runtime. Updating the application image is sufficient when the issuer is already allowed; otherwise update the issuer parameter and roll the tasks as well. See [authentication configuration](../docs/operations.md#environment).
+
 ## Initial environment setup
 
 Dev uses schema `forms` in database `topcoder-services` on the existing services RDS instance. The database administrator provisions the `forms` login and schema; this service does not create a separate database or rotate that login. All tables, enums, functions, reporting views, and Prisma migration history remain in `forms`.

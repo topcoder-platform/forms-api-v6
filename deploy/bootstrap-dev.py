@@ -105,7 +105,6 @@ def main():
                               Overwrite=True, Description='Forms schema in topcoder-services; user-provided forms login')
     issuers = json.loads(parameter(ssm, '/config/common/global-appvar/VALID_ISSUERS'))
     ensure_parameter(ssm, PREFIX + '/VALID_ISSUERS', ','.join(issuers))
-    ensure_parameter(ssm, PREFIX + '/AUTH_AUDIENCE', parameter(ssm, '/config/common/global-appvar/AUTH0_AUDIENCE'))
     print('Encrypted database URLs now select topcoder-services, schema forms, user forms.')
 
 

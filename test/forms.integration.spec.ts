@@ -56,6 +56,7 @@ describe('forms API with real PostgreSQL', () => {
     });
     machine = await token({
       gty: 'client-credentials',
+      azp: 'test-client',
       scope: 'manage:forms read:forms-submissions',
     });
   });
@@ -159,6 +160,7 @@ describe('forms API with real PostgreSQL', () => {
     });
     const readOnly = await token({
       gty: 'client-credentials',
+      azp: 'test-client',
       scope: 'read:forms-submissions',
     });
     await request(app.getHttpServer())
@@ -430,8 +432,13 @@ describe('forms API with real PostgreSQL', () => {
     ).toBe(2);
     const jsonColumns = await db.$queryRaw<
       unknown[]
-    >`SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = 'forms' AND data_type IN ('json', 'jsonb')`;
-    expect(jsonColumns).toEqual([]);
+    >`SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = 'forms' AND data_type IN ('json', 'jsonb') ORDER BY table_name, column_name`;
+    // Only the processor's documented inbox/configuration columns may use JSON.
+    expect(jsonColumns).toEqual([
+      { table_name: 'ProcessorEvent', column_name: 'payload' },
+      { table_name: 'ProcessorFlow', column_name: 'rules' },
+      { table_name: 'ProcessorFlow', column_name: 'settings' },
+    ]);
   });
 
   it('handles concurrent identical retries once and rejects key reuse with changed answers', async () => {
@@ -987,19 +994,13 @@ describe('forms API with real PostgreSQL', () => {
     ).toBe(2);
   });
 
-  it('rejects expired tokens, wrong issuer/audience, and unsupported signing algorithms', async () => {
+  it('rejects expired tokens, wrong issuers, and unsupported signing algorithms', async () => {
     const { SignJWT } = await import('jose');
     const claims = { roles: ['Administrator'] };
     for (const settings of [
       {
         issuer: 'https://wrong.test',
         audience: 'forms-api',
-        expiration: '5m',
-        algorithm: 'HS256',
-      },
-      {
-        issuer: 'https://forms.test',
-        audience: 'wrong-api',
         expiration: '5m',
         algorithm: 'HS256',
       },

@@ -2,27 +2,27 @@ import 'dotenv/config';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
+import { readConfig } from '../src/config';
 
 /**
  * Creates/publishes the sample form, submits an example, and prints the named-column report.
- * @returns Completion. @throws Error outside local HS256 mode or when an API step fails.
+ * @returns Completion. @throws Error outside local development or without the shared secret or when an API step fails.
  */
 async function demo(): Promise<void> {
   if (
     process.env.NODE_ENV === 'production' ||
-    process.env.AUTH_MODE !== 'hs256' ||
     !process.env.AUTH_SECRET
   )
     throw new Error('The demo requires local development HS256 configuration.');
   const { SignJWT } = await import('jose');
+  const config = readConfig();
   const token = await new SignJWT({
     roles: ['Administrator'],
-    userId: 'demo-member',
+    userId: '12345',
   })
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject('local-demo')
-    .setIssuer(process.env.VALID_ISSUERS!.split(',')[0])
-    .setAudience(process.env.AUTH_AUDIENCE!)
+    .setIssuer(config.issuers[0])
     .setIssuedAt()
     .setExpirationTime('5m')
     .sign(new TextEncoder().encode(process.env.AUTH_SECRET));

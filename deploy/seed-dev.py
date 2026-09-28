@@ -22,7 +22,7 @@ def encoded(value):
 
 
 def main():
-    """Create or verify event_interest using dev configuration; raise on drift or HTTP errors."""
+    """Publish the dev sample with a shared-auth-compatible M2M token; raise on drift or HTTP errors."""
     session = boto3.Session(region_name='us-east-1')
     if session.client('sts').get_caller_identity()['Account'] != '811668436784':
         raise RuntimeError('The sample form is restricted to development.')
@@ -31,10 +31,11 @@ def main():
         """Read one exact decrypted SSM setting; propagate AWS errors without logging values."""
         return ssm.get_parameter(Name=name, WithDecryption=True)['Parameter']['Value']
     now = int(time.time())
+    raw_issuers = setting('/config/forms-api-v6/appvar/VALID_ISSUERS').strip()
+    issuers = json.loads(raw_issuers) if raw_issuers.startswith('[') else raw_issuers.split(',')
     head = encoded({'alg': 'HS256', 'typ': 'JWT'})
     body = encoded({'sub': 'forms-dev-bootstrap@clients', 'iat': now, 'exp': now + 300,
-                    'iss': setting('/config/forms-api-v6/appvar/VALID_ISSUERS').split(',')[0],
-                    'aud': setting('/config/forms-api-v6/appvar/AUTH_AUDIENCE'),
+                    'iss': issuers[0].strip(), 'azp': 'forms-dev-bootstrap',
                     'gty': 'client-credentials', 'scope': 'manage:forms'})
     message = head + '.' + body
     signature = hmac.new(setting('/config/common/global-appvar/AUTH_SECRET').encode(), message.encode(), hashlib.sha256).digest()

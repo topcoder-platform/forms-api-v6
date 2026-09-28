@@ -6,15 +6,16 @@
 | ---------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | `DATABASE_URL`         | Required PostgreSQL URL with `schema=forms`; dev uses `topcoder-services`. Both migrations and runtime use it. |
 | `PORT`                 | HTTP listen port, default 3000; `.env.example` uses 3006 on the host.                                                       |
-| `AUTH_MODE`            | `jwks` (default) or `hs256`.                                                                                                |
-| `JWKS_URL`             | Required HTTPS URL in JWKS mode; only RS256 is accepted.                                                                    |
-| `AUTH_SECRET`          | At least 32 characters in HS256 mode; only HS256 is accepted.                                                               |
-| `VALID_ISSUERS`        | Required comma-separated exact JWT issuers. Unlike some older APIs, this setting is not a JSON array.                       |
-| `AUTH_AUDIENCE`        | Required expected JWT audience for standard tokens; legacy Topcoder human HS256 tokens omit it (see [authentication](api.md#authentication)).                                                                                             |
-| `AUTH_CLAIM_NAMESPACE` | Exact roles/userId custom-claim prefix; default `https://topcoder.com/`.                                                    |
+| `AUTH_SECRET`          | Required shared Topcoder secret, at least 32 characters; used for HS256 tokens.                                                               |
+| `VALID_ISSUERS`        | Required exact trusted JWT issuers, as a JSON string array or comma-separated list. RS256 JWKS URLs derive from these issuers.                       |
+| `AUTH_CLAIM_NAMESPACE` | Actor fallback prefix, default `https://topcoder.com/`; the shared middleware normalizes Topcoder namespaces first.                                                    |
 | `CORS_ORIGINS`         | Comma-separated exact HTTP(S) origins, no trailing slash/wildcard. Empty means no browser origins are allowed.              |
 | `THROTTLE_LIMIT`       | Requests per minute per client IP and handler, per replica; default 30. Health probes are exempt.                           |
 | `TRUST_PROXY_CIDRS`    | Explicit trusted ingress proxy addresses/CIDRs. Empty by default.                                                           |
+
+Inbound authentication uses the pinned `tc-core-library-js` authenticator for both HS256 and RS256. For the dev reports application, `VALID_ISSUERS` must include `https://auth.topcoder-dev.com/` exactly (including the trailing slash); its public signing keys are fetched from `https://auth.topcoder-dev.com/.well-known/jwks.json`. Keep the legacy API issuer and other intended trusted issuers in the same list. The runtime needs outbound HTTPS access to those JWKS endpoints.
+
+`AUTH_MODE`, `AUTH_AUDIENCE`, and `JWKS_URL` are obsolete and ignored, so an existing ECS task definition with `AUTH_MODE=hs256` does not block RS256 after deploying the new image. The updated template removes these obsolete mappings. The library does not enforce a Forms-specific audience; the Topcoder browser client ID is accepted through the same trusted-issuer policy as other v6 services. No browser token, client secret, or private signing key needs to be copied into Forms configuration.
 
 All Forms tables, enums, functions, migration history, and reporting views live in the `forms` schema. The database can be shared with other services. Models and raw SQL explicitly qualify this schema; migrations do not change other schemas. PostgreSQL TLS options belong in the connection URL/driver configuration. The service does not disable certificate verification.
 
@@ -28,7 +29,7 @@ Ordinary submissions need no Bus API configuration. To accept `kafka=true` submi
 | --- | --- |
 | `BUSAPI_URL` | HTTP(S) API base ending in `/v6`, e.g. `https://api.topcoder-dev.com/v6`. The shared wrapper appends `/bus/events`. |
 | `AUTH0_URL` | Auth0 token endpoint used by the shared Topcoder M2M client. |
-| `AUTH0_AUDIENCE` | Outbound M2M audience; separate from inbound `AUTH_AUDIENCE`. |
+| `AUTH0_AUDIENCE` | Outbound M2M audience used to acquire a Bus API token. |
 | `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET` | Service credentials authorized to publish Bus API events. Required when `BUSAPI_URL` is set. |
 | `TOKEN_CACHE_TIME` | Optional M2M token cache duration in milliseconds, 0–86400000; otherwise uses the wrapper default. |
 | `AUTH0_PROXY_SERVER_URL` | Optional Auth0 proxy supported by the shared wrapper. |

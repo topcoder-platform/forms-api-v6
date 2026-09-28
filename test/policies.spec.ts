@@ -143,15 +143,13 @@ describe('definition and deployment policies', () => {
   it('requires signed-token settings and exact CORS origins, defaulting to untrusted proxy headers', () => {
     const env = {
       DATABASE_URL: 'postgresql://localhost/forms',
-      AUTH_MODE: 'hs256',
       AUTH_SECRET: testSecret,
       VALID_ISSUERS: 'https://forms.test',
-      AUTH_AUDIENCE: 'forms-api',
     };
     expect(readConfig(env).trustProxy).toEqual([]);
-    expect(new URL(readConfig(env).databaseUrl).searchParams.get('schema')).toBe(
-      'forms',
-    );
+    expect(
+      new URL(readConfig(env).databaseUrl).searchParams.get('schema'),
+    ).toBe('forms');
     expect(() =>
       readConfig({
         ...env,
@@ -159,19 +157,16 @@ describe('definition and deployment policies', () => {
       }),
     ).toThrow();
     expect(() => readConfig({ ...env, AUTH_SECRET: '' })).toThrow();
-    expect(() => readConfig({ ...env, AUTH_AUDIENCE: '' })).toThrow();
+    expect(
+      readConfig({ ...env, VALID_ISSUERS: '["https://forms.test"]' }).issuers,
+    ).toEqual(['https://forms.test']);
+    for (const issuers of ['[]', '[null]', '[42]', '[""]', '[bad', ','])
+      expect(() => readConfig({ ...env, VALID_ISSUERS: issuers })).toThrow();
     expect(() => readConfig({ ...env, CORS_ORIGINS: '*' })).toThrow();
     expect(() =>
       readConfig({
         ...env,
         DATABASE_URL: 'postgresql://localhost/forms?schema=another',
-      }),
-    ).toThrow();
-    expect(() =>
-      readConfig({
-        ...env,
-        AUTH_MODE: 'jwks',
-        JWKS_URL: 'http://issuer.example/jwks',
       }),
     ).toThrow();
   });
