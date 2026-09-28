@@ -42,7 +42,8 @@ verification job. `develop` builds and deploys dev; `master` builds and deploys
 production. Both use Topcoder's `org-global` context and pinned `tc-deploy-scripts`
 credential helper. Forms retains its runtime and migration images and
 `release.py` deployment process: target-database migrations still run before
-runtime promotion. Deployments are serialized separately per environment. The
+runtime promotion. Each release also refreshes the runtime SSM appvar references
+from the service and global paths, as described below. Deployments are serialized separately per environment. The
 CircleCI project must be connected in the Topcoder organization to use that shared
 context.
 
@@ -71,7 +72,8 @@ digests and AWS task/stack identifiers. On an observation timeout, inspect the
 reported task/stack operation before retrying; do not start a second migration
 while the first remains active. Infrastructure edits are applied separately using
 CloudFormation with the current ImageTag and environment parameters preserved;
-normal app releases retain the existing stack template and parameters.
+normal app releases preserve the existing stack infrastructure and parameters while
+refreshing the runtime appvar references and their SSM execution permissions.
 
 ## Dev sample
 
@@ -80,3 +82,47 @@ normal app releases retain the existing stack template and parameters.
 It refuses production and conflicting published definitions. The corresponding
 CMS seed lives in `payload-cms/scripts/seed-forms-test.ts`. The website resolves the
 CMS page at `/forms-test` and fetches its schema from the public Forms API at runtime.
+
+## Runtime appvar injection
+
+Forms uses the same ECS secret-reference mapping as the other v6 services'
+`master_deploy.sh -j /config/${APPNAME}/appvar,/config/common/global-appvar`:
+
+- Enumerate all direct parameters from `/config/forms-api-v6/appvar` first, then
+  `/config/common/global-appvar`, including every paginated result. The mapping follows the pinned
+  [v1.4.20 deployment suite](https://github.com/topcoder-platform/tc-deploy-scripts/blob/v1.4.20/master_deploy.sh)
+  used by `bus-api-v6`.
+- Inject each leaf name as the environment variable, using its SSM ARN in the
+  task definition's `Secrets` / `valueFrom`. No decrypted values enter deployment
+  artifacts, logs, Docker images, or plaintext ECS environment entries.
+- Existing literal task environment settings take precedence; service-specific
+  appvars take precedence over identically named globals. There is no appvar allowlist.
+- ECS resolves the values at task startup. The execution role can read both exact
+  prefixes. Custom KMS keys still require the existing `SecretsKmsKeyArn` grant.
+
+`deploy/appvars.py` implements this mapping for the existing CloudFormation-owned
+Forms service. `release.py` refreshes it on every successful release instead of
+reusing a fixed list of secrets. Migration tasks still receive only their explicit
+`DATABASE_URL` secret; runtime appvars do not change migration credentials.
+
+For a configuration-only rollout with the existing image, load the target AWS
+credentials and use Python with `boto3` and `PyYAML` installed:
+
+```sh
+python3 deploy/appvars.py dev          # read-only plan and CloudFormation validation
+python3 deploy/appvars.py dev --apply  # update bindings/IAM and roll the same image
+```
+
+All existing stack parameters, including ImageTag and DesiredCount, are retained.
+Only the runtime secrets list and its appvar IAM policy change. Parameter additions
+and removals are picked up when generating the template. Changing an existing SSM
+value alone requires a new release or an ECS force-new-deployment to refresh tasks;
+an unchanged configuration plan does not force a restart.
+
+For Kafka delivery, create `BUSAPI_URL=https://api.topcoder-dev.com/v6` under the
+Forms dev appvar path. The Forms `AUTH0_CLIENT_ID` / `AUTH0_CLIENT_SECRET` combine
+with shared `AUTH0_URL`, `AUTH0_AUDIENCE`, and optional `AUTH0_PROXY_SERVER_URL` /
+`TOKEN_CACHE_TIME`. Production needs its corresponding URL and authorized credentials.
+Do not decrypt or copy shared values into the service path to perform injection.
+
+Deployment mapping regression tests: `python3 -m unittest discover -s deploy -p 'test_*.py'`.

@@ -3,7 +3,8 @@
 
 CLI: release.py dev|production IMAGE_TAG [RUNTIME_IMAGE] [MIGRATION_IMAGE].
 Requires inherited AWS credentials, boto3, and Docker. Pushes immutable ECR tags,
-executes migrations as a private one-shot ECS task, then updates CloudFormation.
+discovers service/global SSM appvars, executes migrations as a private one-shot ECS
+task, then updates CloudFormation with fresh ECS secret references.
 Raises on failures; runtime promotion never occurs after failed migrations.
 """
 import base64
@@ -17,6 +18,8 @@ import sys
 import time
 
 import boto3
+
+from appvars import configure_template
 
 
 def wait_until(description, check, seconds=1800):
@@ -36,7 +39,7 @@ def wait_until(description, check, seconds=1800):
 
 
 def main():
-    """Validate release arguments and environment, migrate, promote, and save evidence.
+    """Validate release arguments, discover appvars, migrate, promote, and save evidence.
 
     Returns None on success; AWS, Docker, failed migration, and failed deployment
     errors propagate. Credentials are passed through stdin/environment, never argv.
@@ -48,7 +51,8 @@ def main():
         raise RuntimeError('Invalid immutable release tag.')
     local_runtime, local_migration = sys.argv[3:] or ['forms-api-v6:candidate', 'forms-api-v6:migrate-candidate']
     session = boto3.Session(region_name=os.environ.get('AWS_REGION', 'us-east-1'))
-    account = session.client('sts').get_caller_identity()['Account']
+    identity = session.client('sts').get_caller_identity()
+    account = identity['Account']
     if (account == '811668436784') != (environment == 'dev'):
         raise RuntimeError('AWS account does not match the selected deployment environment.')
     cfn, ecs, ecr = [session.client(name) for name in ['cloudformation', 'ecs', 'ecr']]
@@ -59,6 +63,11 @@ def main():
     settings = {x['ParameterKey']: x['ParameterValue'] for x in stack['Parameters']}
     if settings['Environment'] != environment or settings['BootstrapOnly'] != 'false':
         raise RuntimeError('Stack environment or bootstrap state does not permit deployment.')
+    template = configure_template(
+        cfn.get_template(StackName=stack_name, TemplateStage='Original')['TemplateBody'],
+        session.client('ssm'), settings['ParameterPrefix'], identity['Arn'].split(':')[1],
+        session.region_name, account)
+    cfn.validate_template(TemplateBody=json.dumps(template))
     output = {x['OutputKey']: x['OutputValue'] for x in stack['Outputs']}
     repository = output['RepositoryUri']
     authorization = ecr.get_authorization_token()['authorizationData'][0]
@@ -107,7 +116,7 @@ def main():
     parameters = [({'ParameterKey': x['ParameterKey'], 'ParameterValue': tag} if x['ParameterKey'] == 'ImageTag'
                    else {'ParameterKey': x['ParameterKey'], 'ParameterValue': str(max(1, int(settings['DesiredCount'])))} if x['ParameterKey'] == 'DesiredCount'
                    else {'ParameterKey': x['ParameterKey'], 'UsePreviousValue': True}) for x in stack['Parameters']]
-    result = cfn.update_stack(StackName=stack_name, UsePreviousTemplate=True,
+    result = cfn.update_stack(StackName=stack_name, TemplateBody=json.dumps(template),
                              Parameters=parameters, Capabilities=['CAPABILITY_IAM'])
     print('Updating stack: ' + result['StackId'], flush=True)
 
