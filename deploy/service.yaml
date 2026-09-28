@@ -150,7 +150,7 @@ Resources:
                 Action: ssm:GetParameters
                 Resource:
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${ParameterPrefix}/*
-                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/config/common/global-appvar/*
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/config/common/global-appvar/AUTH_SECRET
               - !If
                 - HasSecretsKmsKey
                 - Effect: Allow
