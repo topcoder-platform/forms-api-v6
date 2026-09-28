@@ -107,3 +107,31 @@ SQL views are computed rather than materialized. They are indexed through the su
 The service supports `DRAFT -> PUBLISHED -> RETIRED`. Published versions cannot return to draft; retired versions cannot be reopened. Create the next sequential revision to reopen or change a form. Draft content becomes immutable through the API when first saved; local Payload drafts can be edited freely until synchronized.
 
 Versions and historical reporting views are retained. The service does not impose an arbitrary retention period or add deletion endpoints. An approved retention policy can delete whole submission envelopes in batches; cascading foreign keys remove child data. Definition records remain for interpretation of retained historical data. Reports and database grants expose personal submission information only to their authorized readers.
+
+## Submission processing
+
+`ProcessorFlow`, `ProcessorEvent`, and `ProcessorDelivery` support forms-processor-v6.
+The API owns their migrations; the processor uses these schema-qualified tables
+without running DDL at startup. A flow has a stable ID, form key, enabled flag,
+AND-combined answer predicates (`rules.all`), action name, and JSON action settings.
+The seeded `lets-talk-sales-email` flow matches all `lets-talk` submissions and is
+disabled with TBD recipients, sender, and template. Manage it externally in SQL;
+set `updatedAt` when changing settings. Disabling delivery preserves queued work.
+
+The inbox stores the submitted event before Kafka commit. Routing records a unique
+receipt per submission/flow, including disabled matching flows. Retries read current
+action settings. No matching flow means the event is retained but has no actions.
+Flow additions/rule edits apply to events not yet routed; replay requires explicitly
+clearing `routedAt` and never deletes existing delivery receipts. Bus API email-event acceptance
+and the receipt cannot be atomic; a crash in between can cause a duplicate email.
+
+Processor events contain answers and must be included in personal-data retention
+and erasure procedures separately from `Submission`. Deleting a ProcessorEvent
+cascades its delivery records and removes deduplication protection, so retain it
+through the Kafka retention/replay window. No automatic deletion policy is enabled.
+See forms-processor-v6/README.md for rules, settings, replay, and operational SQL.
+
+The `sendgrid-email` action name is retained for compatibility, but forms-processor-v6
+now publishes the v3 email contract to `external.action.email` through Bus API.
+`deliveredAt` records Bus API acceptance; email-service-v6 handles provider delivery
+and retries. Optional `fromEmail` overrides that service's default sender.

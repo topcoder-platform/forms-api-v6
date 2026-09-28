@@ -48,7 +48,8 @@ export class AuthGuard implements CanActivate {
   ) {}
 
   /**
-   * Authenticates an optional public-route token or a required administration token.
+   * Authenticates standard JWTs or legacy Topcoder HS256 member tokens, then checks route access.
+   * Legacy tokens without sub/aud use their verified userId as the audit subject.
    * @param context Current HTTP route and request.
    * @returns True after assigning a verified actor, or for an anonymous public request.
    * @throws UnauthorizedException for invalid/missing JWTs; ForbiddenException for insufficient roles/scopes.
@@ -75,14 +76,38 @@ export class AuthGuard implements CanActivate {
       const verificationOptions = {
         algorithms: [this.config.authMode === 'hs256' ? 'HS256' : 'RS256'],
         issuer: this.config.issuers,
-        audience: this.config.audience,
-        requiredClaims: ['exp', 'sub', 'iat'],
+        requiredClaims: ['exp', 'iat'],
       };
       const { payload } =
         this.key instanceof Uint8Array
           ? await jwtVerify(header.slice(7), this.key, verificationOptions)
           : await jwtVerify(header.slice(7), this.key, verificationOptions);
-      request.actor = normalizeActor(payload, this.config.claimNamespace);
+      // Identity API's legacy member JWTs use userId and omit both sub and aud.
+      // Select this compatibility profile only after signature/issuer verification.
+      const legacyMember =
+        this.config.authMode === 'hs256' &&
+        payload.sub === undefined &&
+        payload.aud === undefined &&
+        /^https:\/\/api\.topcoder(?:-dev)?\.com$/.test(payload.iss ?? '') &&
+        ((typeof payload.userId === 'string' &&
+          /^[1-9]\d{0,19}$/.test(payload.userId)) ||
+          (typeof payload.userId === 'number' &&
+            Number.isSafeInteger(payload.userId) &&
+            payload.userId > 0));
+      if (!legacyMember) {
+        const audiences = Array.isArray(payload.aud)
+          ? payload.aud
+          : [payload.aud];
+        if (!audiences.includes(this.config.audience))
+          throw new Error('Invalid token audience.');
+      }
+      const actor = normalizeActor(
+        legacyMember ? { ...payload, sub: String(payload.userId) } : payload,
+        this.config.claimNamespace,
+      );
+      if (legacyMember && actor.machine)
+        throw new Error('Machine tokens require subject and audience.');
+      request.actor = actor;
     } catch {
       throw new UnauthorizedException('Invalid or expired bearer token.');
     }
@@ -110,7 +135,7 @@ export class AuthGuard implements CanActivate {
  */
 export function normalizeActor(claims: JWTPayload, namespace: string): Actor {
   const subject = claims.sub;
-  if (!subject || subject.length > 200)
+  if (typeof subject !== 'string' || !subject.trim() || subject.length > 200)
     throw new Error('Invalid token subject.');
   const roles = stringList(
     claims.roles ?? claims[`${namespace}roles`],
