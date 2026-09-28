@@ -39,19 +39,27 @@ jobs:
           name: Build runtime and one-shot migration images
           command: |
             docker buildx build --load --target migrate -t forms-api-v6:migrate-candidate .
-            docker buildx build --load --target runtime -t forms-api-v6:candidate .
+            docker buildx build --load --target runtime -t forms-api-v6:latest .
       - run:
-          name: Authenticate, migrate, and deploy through CloudFormation
+          name: Migrate and deploy using the Topcoder deployment suite
           no_output_timeout: 35m
           command: |
             git clone --quiet --depth 1 --branch v1.4.20 https://github.com/topcoder-platform/tc-deploy-scripts ../buildscript
             test "$(git -C ../buildscript rev-parse HEAD)" = 5f3745c35463ce0e2475c12269aa7a2b446456e5
-            cp ../buildscript/awsconfiguration.sh .
+            cp ../buildscript/{master_deploy,buildenv,awsconfiguration,psvar-processor}.sh .
             ./awsconfiguration.sh << parameters.deploy_env >>
             set +x
             source awsenvconf
-            rm -f awsenvconf awsconfiguration.sh
+            ./psvar-processor.sh -t appenv -p "/config/${APPNAME}/deployvar"
+            source deployvar_env
             python3 -u deploy/release.py << parameters.environment >> "<< parameters.environment >>-${CIRCLE_SHA1}-${CIRCLE_BUILD_NUM}"
+            ./master_deploy.sh \
+              -d ECS \
+              -e << parameters.deploy_env >> \
+              -t latest \
+              -j "/config/${APPNAME}/appvar,/config/common/global-appvar" \
+              -i "$APPNAME" \
+              -p FARGATE
       - store_artifacts:
           path: deploy/release-<< parameters.environment >>.json
           destination: release

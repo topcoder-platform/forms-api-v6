@@ -23,6 +23,11 @@ The Prisma client uses the PostgreSQL driver adapter and generated TypeScript co
 
 ## Outbound Bus API
 
+ECS releases inject all service appvars from `/config/forms-api-v6/appvar` and
+shared appvars from `/config/common/global-appvar` as SSM secret references, with
+service values taking precedence. See [deployment injection](../deploy/README.md#runtime-appvar-injection)
+for configuration-only rolls and required execution-role permissions.
+
 Ordinary submissions need no Bus API configuration. To accept `kafka=true` submissions successfully, configure:
 
 | Variable | Meaning |
