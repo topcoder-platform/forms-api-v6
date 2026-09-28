@@ -23,9 +23,9 @@ Keys are lowercase snake_case, begin with a letter, and contain at most 40 chara
 
 ## Authentication
 
-Authorization is deny-by-default. Public routes may omit a token; supplying an invalid token still returns 401. Configure either HTTPS JWKS/RS256 or the legacy HS256 shared-secret mode. The two verification paths have separate algorithm allowlists. Signature, issuer, audience, expiry, issued-at presence, and subject are required.
+Authorization is deny-by-default. Public routes may omit a token; supplying an invalid token still returns 401. Configure either HTTPS JWKS/RS256 or the legacy HS256 shared-secret mode. The two verification paths have separate algorithm allowlists. Signature, trusted issuer, expiry, and issued-at presence are always required. Standard tokens also require the configured audience and a nonempty subject. In HS256 mode, legacy human tokens issued by `https://api.topcoder-dev.com` or `https://api.topcoder.com` may omit both `aud` and `sub` when they contain a positive numeric `userId`; the issuer must still appear in `VALID_ISSUERS`. Their verified `userId` supplies the audit subject. This exception does not apply to machine tokens, JWKS/RS256 tokens, or tokens containing only one of `aud` and `sub`.
 
-Roles are matched case-insensitively. Roles and userId are read from direct claims or the exact `AUTH_CLAIM_NAMESPACE` prefix, default `https://topcoder.com/`. Subject is retained for editor audit; member forms require an actual `userId` claim. A missing userId is not silently replaced with an Auth0 subject.
+Roles are matched case-insensitively. Roles and userId are read from direct claims or the exact `AUTH_CLAIM_NAMESPACE` prefix, default `https://topcoder.com/`. Subject (or the verified legacy `userId`) is retained for editor audit; member forms require an actual `userId` claim. A missing userId is not silently replaced with an Auth0 subject.
 
 | Caller    | Manage access                                 | Report access                            | Submit access                                           |
 | --------- | --------------------------------------------- | ---------------------------------------- | ------------------------------------------------------- |

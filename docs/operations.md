@@ -10,7 +10,7 @@
 | `JWKS_URL`             | Required HTTPS URL in JWKS mode; only RS256 is accepted.                                                                    |
 | `AUTH_SECRET`          | At least 32 characters in HS256 mode; only HS256 is accepted.                                                               |
 | `VALID_ISSUERS`        | Required comma-separated exact JWT issuers. Unlike some older APIs, this setting is not a JSON array.                       |
-| `AUTH_AUDIENCE`        | Required expected JWT audience.                                                                                             |
+| `AUTH_AUDIENCE`        | Required expected JWT audience for standard tokens; legacy Topcoder human HS256 tokens omit it (see [authentication](api.md#authentication)).                                                                                             |
 | `AUTH_CLAIM_NAMESPACE` | Exact roles/userId custom-claim prefix; default `https://topcoder.com/`.                                                    |
 | `CORS_ORIGINS`         | Comma-separated exact HTTP(S) origins, no trailing slash/wildcard. Empty means no browser origins are allowed.              |
 | `THROTTLE_LIMIT`       | Requests per minute per client IP and handler, per replica; default 30. Health probes are exempt.                           |

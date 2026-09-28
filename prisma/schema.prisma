@@ -187,3 +187,53 @@ model SubmissionEvent {
 
   @@schema("forms")
 }
+
+/// Externally managed content rules and action settings. Disabled flows retain pending deliveries.
+model ProcessorFlow {
+  id         String              @id @db.VarChar(100)
+  formKey    String              @db.VarChar(40)
+  enabled    Boolean             @default(false)
+  action     String              @db.VarChar(100)
+  rules      Json                @default("{\"all\":[]}")
+  settings   Json                @default("{}")
+  createdAt  DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime            @default(now()) @db.Timestamptz(3)
+  deliveries ProcessorDelivery[]
+
+  @@index([formKey])
+  @@schema("forms")
+}
+
+/// Durable Kafka inbox; independent of submission retention and committed before acknowledging Kafka.
+model ProcessorEvent {
+  submissionId  String              @id @db.Uuid
+  formKey       String              @db.VarChar(40)
+  payload       Json
+  receivedAt    DateTime            @default(now()) @db.Timestamptz(3)
+  routedAt      DateTime?           @db.Timestamptz(3)
+  attempts      Int                 @default(0)
+  nextAttemptAt DateTime            @default(now()) @db.Timestamptz(3)
+  lastError     String?             @db.VarChar(100)
+  deliveries    ProcessorDelivery[]
+
+  @@index([routedAt, nextAttemptAt])
+  @@schema("forms")
+}
+
+/// Per-flow acceptance receipt and retry schedule; Bus API acceptance is not recipient delivery confirmation.
+model ProcessorDelivery {
+  submissionId  String         @db.Uuid
+  flowId        String         @db.VarChar(100)
+  attempts      Int            @default(0)
+  nextAttemptAt DateTime       @default(now()) @db.Timestamptz(3)
+  lastError     String?        @db.VarChar(100)
+  deliveredAt   DateTime?      @db.Timestamptz(3)
+  createdAt     DateTime       @default(now()) @db.Timestamptz(3)
+  event         ProcessorEvent @relation(fields: [submissionId], references: [submissionId], onDelete: Cascade, onUpdate: NoAction)
+  flow          ProcessorFlow  @relation(fields: [flowId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@id([submissionId, flowId])
+  @@index([deliveredAt, nextAttemptAt])
+  @@index([flowId])
+  @@schema("forms")
+}
