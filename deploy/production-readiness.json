@@ -1,0 +1,56 @@
+{
+  "date": "2026-10-06",
+  "account": "409275337247",
+  "region": "us-east-1",
+  "stack": "arn:aws:cloudformation:us-east-1:409275337247:stack/forms-api-v6-production/7c574b20-c10c-11f1-89bd-0affde949709",
+  "stackStatus": "CREATE_COMPLETE",
+  "cluster": "topcoder-infrastructure",
+  "service": "arn:aws:ecs:us-east-1:409275337247:service/topcoder-infrastructure/forms-api-v6",
+  "taskDefinition": "arn:aws:ecs:us-east-1:409275337247:task-definition/forms-api-v6:1",
+  "desiredCount": 0,
+  "secureStringCount": 27,
+  "outputs": {
+    "TargetGroupArn": "arn:aws:elasticloadbalancing:us-east-1:409275337247:targetgroup/forms-api-v6-production/693b280b99d3fc76",
+    "ApiUrl": "https://api.topcoder.com/v6/forms",
+    "ServiceName": "forms-api-v6",
+    "TaskSecurityGroupId": "sg-0bf5e59924ba4a023",
+    "RepositoryUri": "409275337247.dkr.ecr.us-east-1.amazonaws.com/forms-api-v6",
+    "TaskDefinitionArn": "arn:aws:ecs:us-east-1:409275337247:task-definition/forms-api-v6:1"
+  },
+  "preflightImage": "409275337247.dkr.ecr.us-east-1.amazonaws.com/forms-api-v6:infrastructure-preflight-20261006",
+  "preflight": [
+    {
+      "subnet": "subnet-0d91bddbea456aa6b",
+      "taskArn": "arn:aws:ecs:us-east-1:409275337247:task/topcoder-infrastructure/92ebe25821de4175b0f92a023bc96d30",
+      "exitCode": 0,
+      "checks": [
+        "runtime configuration parses",
+        "auth.topcoder.com HTTPS reachable: 200",
+        "topcoder.auth0.com HTTPS reachable: 200",
+        "auth0proxy.topcoder.com HTTPS reachable: 500",
+        "api.topcoder.com HTTPS reachable: 404",
+        "PostgreSQL reachable; RDS certificate verified",
+        "INFRASTRUCTURE_PREFLIGHT_PASSED"
+      ]
+    },
+    {
+      "subnet": "subnet-7f657057",
+      "taskArn": "arn:aws:ecs:us-east-1:409275337247:task/topcoder-infrastructure/0bff2d9353eb4c37845cc78cfa3105c6",
+      "exitCode": 0,
+      "checks": [
+        "runtime configuration parses",
+        "auth.topcoder.com HTTPS reachable: 200",
+        "topcoder.auth0.com HTTPS reachable: 200",
+        "auth0proxy.topcoder.com HTTPS reachable: 500",
+        "api.topcoder.com HTTPS reachable: 404",
+        "PostgreSQL reachable; RDS certificate verified",
+        "INFRASTRUCTURE_PREFLIGHT_PASSED"
+      ]
+    }
+  ],
+  "limitations": [
+    "Placeholders must be replaced before release.",
+    "Database login/schema and real credentials have not been validated.",
+    "No production application deployment or migration has run."
+  ]
+}

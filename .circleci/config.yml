@@ -36,6 +36,9 @@ jobs:
       - setup_remote_docker
       - install-dependencies
       - run:
+          name: Verify first-release activation and rollback handling
+          command: python3 -m unittest discover -s deploy/tests
+      - run:
           name: Build runtime and one-shot migration images
           command: |
             docker buildx build --load --target migrate -t forms-api-v6:migrate-candidate .
@@ -60,6 +63,7 @@ jobs:
               -j "/config/${APPNAME}/appvar,/config/common/global-appvar" \
               -i "$APPNAME" \
               -p FARGATE
+            python3 -u deploy/activate.py
       - store_artifacts:
           path: deploy/release-<< parameters.environment >>.json
           destination: release

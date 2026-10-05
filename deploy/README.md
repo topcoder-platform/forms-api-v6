@@ -97,7 +97,13 @@ update the ECS service directly, as in the other v6 services; the stack's ImageT
 and TaskDefinition output no longer track the active application release. When
 changing infrastructure, preserve the live service task definition to avoid
 restoring the stack's older task definition. A newly bootstrapped service with
-DesiredCount=0 must be scaled up after its migrations and first runtime deployment.
+DesiredCount=0 is started by `activate.py` after its migrations and first runtime
+deployment. This final CircleCI check preserves existing nonzero replica counts,
+verifies the requested image, and fails if ECS rolls back or never becomes healthy.
+
+Production infrastructure and the configuration handoff are recorded in
+[production.md](production.md). `production.parameters.json` describes initial
+creation at zero replicas; do not reuse its bootstrap image/count for later updates.
 
 ## Dev sample
 

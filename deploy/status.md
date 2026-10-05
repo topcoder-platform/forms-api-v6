@@ -1,5 +1,8 @@
 # Deployment status — 2026-09-09
 
+This is a historical dev checkpoint. See [production.md](production.md) for the
+2026-10-06 production provisioning and current release prerequisites.
+
 ## Completed and verified in dev
 
 - CloudFormation stack `forms-api-v6-dev` owns service `forms-api-v6` in cluster
