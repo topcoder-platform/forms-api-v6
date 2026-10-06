@@ -38,15 +38,19 @@
     "express": "5.2.1",
     "helmet": "8.3.0",
     "jose": "6.2.10",
+    "jsonwebtoken": "9.0.3",
     "pg": "8.23.0",
     "reflect-metadata": "0.2.2",
-    "rxjs": "7.8.2"
+    "rxjs": "7.8.2",
+    "tc-bus-api-wrapper": "github:topcoder-platform/tc-bus-api-wrapper#297a9c0adcdb97661257e7825bee9c3f5578b833",
+    "tc-core-library-js": "github:topcoder-platform/tc-core-library-js#323567bc50e433ae488b656f9f94e821ebaf3062"
   },
   "devDependencies": {
     "@eslint/js": "9.39.2",
     "@nestjs/testing": "11.1.28",
     "@swc/core": "1.15.11",
     "@types/express": "5.0.6",
+    "@types/jsonwebtoken": "9.0.10",
     "@types/node": "26.0.0",
     "@types/pg": "8.15.6",
     "@types/react": "19.2.14",
@@ -55,6 +59,7 @@
     "eslint": "9.39.2",
     "globals": "16.5.0",
     "jsdom": "27.4.0",
+    "nock": "14.0.16",
     "payload": "3.87.1",
     "prettier": "3.8.1",
     "prisma": "7.10.0",

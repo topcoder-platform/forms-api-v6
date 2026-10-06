@@ -14,10 +14,8 @@ export function testConfig() {
     );
   return readConfig({
     DATABASE_URL: process.env.TEST_DATABASE_URL,
-    AUTH_MODE: 'hs256',
     AUTH_SECRET: testSecret,
     VALID_ISSUERS: 'https://forms.test',
-    AUTH_AUDIENCE: 'forms-api',
     THROTTLE_LIMIT: '10000',
     CORS_ORIGINS: 'https://www.topcoder.com',
   });

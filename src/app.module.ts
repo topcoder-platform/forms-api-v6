@@ -6,6 +6,7 @@ import { CONFIG, type AppConfig } from './config';
 import { DbService } from './db.service';
 import { FormsController } from './forms/forms.controller';
 import { FormsService } from './forms/forms.service';
+import { EventBusService } from './integrations/event-bus.service';
 import { HealthController } from './health.controller';
 
 /** Composes the forms service with explicit configuration, authentication, and request throttling. */
@@ -27,6 +28,7 @@ export class AppModule {
         { provide: CONFIG, useValue: config },
         DbService,
         FormsService,
+        EventBusService,
         { provide: APP_GUARD, useClass: ThrottlerGuard },
         { provide: APP_GUARD, useClass: AuthGuard },
       ],

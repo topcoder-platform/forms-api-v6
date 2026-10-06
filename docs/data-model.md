@@ -17,6 +17,7 @@ erDiagram
     FormVersion ||--o{ FormField : defines
     FormField ||--o{ FieldOption : choices
     FormVersion ||--o{ Submission : receives
+    Submission ||--o| SubmissionEvent : delivery
     Submission ||--o{ Answer : contains
     FormField ||--o{ Answer : constrains
     Answer ||--o{ AnswerSelection : selects
@@ -32,6 +33,7 @@ erDiagram
 | `FormField`       | Named key unique within a version; explicit type, position, required flag, text length and numeric bounds.                                                          |
 | `FieldOption`     | Named option key and label, owned by a field/version.                                                                                                               |
 | `Submission`      | Exact version, server timestamp, UUID idempotency key, canonical request hash, verified member ID, and optional source page path.                                   |
+| `SubmissionEvent` | Optional one-to-one delivery receipt with submission UUID and nullable publication timestamp; cascades on submission deletion. |
 | `Answer`          | One scalar value in a type-specific column, or a multi-select answer parent; unique per submission/field.                                                           |
 | `AnswerSelection` | One row per selected option, with composite ownership foreign keys and duplicate prevention.                                                                        |
 
@@ -47,6 +49,8 @@ SQL CHECKs enforce scalar presence and prevent simultaneous values in incompatib
 The API additionally validates email syntax, exact decimal input precision, real calendar dates, safe field keys, definition consistency, option allowlists, and unknown fields. Database triggers reject changes to published/retired definitions and answer updates. No API allows submission editing. Deleting a whole submission through a controlled retention job cascades to answers/selections.
 
 API form registration and revisions are serialized on the stable form row. Publication, retirement, and submission acceptance use the same lock. This favors simple consistency for occasional website forms; it serializes submissions to the same form. Revisit this locking strategy if measured submission volume requires greater throughput.
+
+Kafka opt-in creates a `SubmissionEvent` row atomically with the submission. Its publication timestamp is updated after Bus API acceptance in a separate transaction; submission envelopes and answers remain immutable. Delivery retries lock this row to prevent concurrent duplicate sends. A failed or unacknowledged delivery remains pending until the caller retries. No JSON payload is stored; the validated request and immutable revision reconstruct the event.
 
 ## Field semantics
 
@@ -103,3 +107,31 @@ SQL views are computed rather than materialized. They are indexed through the su
 The service supports `DRAFT -> PUBLISHED -> RETIRED`. Published versions cannot return to draft; retired versions cannot be reopened. Create the next sequential revision to reopen or change a form. Draft content becomes immutable through the API when first saved; local Payload drafts can be edited freely until synchronized.
 
 Versions and historical reporting views are retained. The service does not impose an arbitrary retention period or add deletion endpoints. An approved retention policy can delete whole submission envelopes in batches; cascading foreign keys remove child data. Definition records remain for interpretation of retained historical data. Reports and database grants expose personal submission information only to their authorized readers.
+
+## Submission processing
+
+`ProcessorFlow`, `ProcessorEvent`, and `ProcessorDelivery` support forms-processor-v6.
+The API owns their migrations; the processor uses these schema-qualified tables
+without running DDL at startup. A flow has a stable ID, form key, enabled flag,
+AND-combined answer predicates (`rules.all`), action name, and JSON action settings.
+The seeded `lets-talk-sales-email` flow matches all `lets-talk` submissions and is
+disabled with TBD recipients, sender, and template. Manage it externally in SQL;
+set `updatedAt` when changing settings. Disabling delivery preserves queued work.
+
+The inbox stores the submitted event before Kafka commit. Routing records a unique
+receipt per submission/flow, including disabled matching flows. Retries read current
+action settings. No matching flow means the event is retained but has no actions.
+Flow additions/rule edits apply to events not yet routed; replay requires explicitly
+clearing `routedAt` and never deletes existing delivery receipts. Bus API email-event acceptance
+and the receipt cannot be atomic; a crash in between can cause a duplicate email.
+
+Processor events contain answers and must be included in personal-data retention
+and erasure procedures separately from `Submission`. Deleting a ProcessorEvent
+cascades its delivery records and removes deduplication protection, so retain it
+through the Kafka retention/replay window. No automatic deletion policy is enabled.
+See forms-processor-v6/README.md for rules, settings, replay, and operational SQL.
+
+The `sendgrid-email` action name is retained for compatibility, but forms-processor-v6
+now publishes the v3 email contract to `external.action.email` through Bus API.
+`deliveredAt` records Bus API acceptance; email-service-v6 handles provider delivery
+and retries. Optional `fromEmail` overrides that service's default sender.

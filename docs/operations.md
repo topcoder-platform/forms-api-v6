@@ -6,19 +6,47 @@
 | ---------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | `DATABASE_URL`         | Required PostgreSQL URL with `schema=forms`; dev uses `topcoder-services`. Both migrations and runtime use it. |
 | `PORT`                 | HTTP listen port, default 3000; `.env.example` uses 3006 on the host.                                                       |
-| `AUTH_MODE`            | `jwks` (default) or `hs256`.                                                                                                |
-| `JWKS_URL`             | Required HTTPS URL in JWKS mode; only RS256 is accepted.                                                                    |
-| `AUTH_SECRET`          | At least 32 characters in HS256 mode; only HS256 is accepted.                                                               |
-| `VALID_ISSUERS`        | Required comma-separated exact JWT issuers. Unlike some older APIs, this setting is not a JSON array.                       |
-| `AUTH_AUDIENCE`        | Required expected JWT audience.                                                                                             |
-| `AUTH_CLAIM_NAMESPACE` | Exact roles/userId custom-claim prefix; default `https://topcoder.com/`.                                                    |
+| `AUTH_SECRET`          | Required shared Topcoder secret, at least 32 characters; used for HS256 tokens.                                                               |
+| `VALID_ISSUERS`        | Required exact trusted JWT issuers, as a JSON string array or comma-separated list. RS256 JWKS URLs derive from these issuers.                       |
+| `AUTH_CLAIM_NAMESPACE` | Actor fallback prefix, default `https://topcoder.com/`; the shared middleware normalizes Topcoder namespaces first.                                                    |
 | `CORS_ORIGINS`         | Comma-separated exact HTTP(S) origins, no trailing slash/wildcard. Empty means no browser origins are allowed.              |
 | `THROTTLE_LIMIT`       | Requests per minute per client IP and handler, per replica; default 30. Health probes are exempt.                           |
 | `TRUST_PROXY_CIDRS`    | Explicit trusted ingress proxy addresses/CIDRs. Empty by default.                                                           |
 
+Inbound authentication uses the pinned `tc-core-library-js` authenticator for both HS256 and RS256. For the dev reports application, `VALID_ISSUERS` must include `https://auth.topcoder-dev.com/` exactly (including the trailing slash); its public signing keys are fetched from `https://auth.topcoder-dev.com/.well-known/jwks.json`. Keep the legacy API issuer and other intended trusted issuers in the same list. The runtime needs outbound HTTPS access to those JWKS endpoints.
+
+`AUTH_MODE`, `AUTH_AUDIENCE`, and `JWKS_URL` are obsolete and ignored, so an existing ECS task definition with `AUTH_MODE=hs256` does not block RS256 after deploying the new image. The updated template removes these obsolete mappings. The library does not enforce a Forms-specific audience; the Topcoder browser client ID is accepted through the same trusted-issuer policy as other v6 services. No browser token, client secret, or private signing key needs to be copied into Forms configuration.
+
 All Forms tables, enums, functions, migration history, and reporting views live in the `forms` schema. The database can be shared with other services. Models and raw SQL explicitly qualify this schema; migrations do not change other schemas. PostgreSQL TLS options belong in the connection URL/driver configuration. The service does not disable certificate verification.
 
 The Prisma client uses the PostgreSQL driver adapter and generated TypeScript code. Connection URLs are configured in `prisma.config.ts`, consistent with the [Prisma 7 migration guide](https://www.prisma.io/docs/orm/more/upgrade-guides/upgrading-versions/upgrading-to-prisma-7). Client generation and compilation require no live database. Migrations and runtime require `DATABASE_URL`.
+
+## Outbound Bus API
+
+ECS releases inject all service appvars from `/config/forms-api-v6/appvar` and
+shared appvars from `/config/common/global-appvar` as SSM secret references, with
+service values taking precedence. See [deployment injection](../deploy/README.md#runtime-appvar-injection)
+for configuration-only rolls and required execution-role permissions.
+
+Ordinary submissions need no Bus API configuration. To accept `kafka=true` submissions successfully, configure:
+
+| Variable | Meaning |
+| --- | --- |
+| `BUSAPI_URL` | HTTP(S) API base ending in `/v6`, e.g. `https://api.topcoder-dev.com/v6`. The shared wrapper appends `/bus/events`. |
+| `AUTH0_URL` | Auth0 token endpoint used by the shared Topcoder M2M client. |
+| `AUTH0_AUDIENCE` | Outbound M2M audience used to acquire a Bus API token. |
+| `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET` | Service credentials authorized to publish Bus API events. Required when `BUSAPI_URL` is set. |
+| `TOKEN_CACHE_TIME` | Optional M2M token cache duration in milliseconds, 0–86400000; otherwise uses the wrapper default. |
+| `AUTH0_PROXY_SERVER_URL` | Optional Auth0 proxy supported by the shared wrapper. |
+| `KAFKA_ERROR_TOPIC` | Wrapper error-topic setting, default `common.error.reporting`; submission topic is always `form.submitted`. |
+
+For ECS, expose the five required Bus API/Auth0 settings to the runtime container through its task-definition secrets (the existing template only maps inbound authentication and database settings). Store them under the service parameter prefix so its existing SSM read permissions apply; never put credentials in the template.
+
+Apply migration `20260928010000_submission_events` before deploying this version. It adds the `forms.SubmissionEvent` delivery table; it does not change existing submissions or reporting views. The service role needs SELECT/INSERT/UPDATE on this table. Ensure `form.submitted` is available through Bus API and downstream consumers deduplicate on the payload's `submissionId`.
+
+Delivery failures return 503 after saving the submission; callers must retry the same body and key. Pending attempts have `publishedAt IS NULL` in `forms.SubmissionEvent`. No background delivery job is included. Provider error bodies, credentials, and answers are not logged by the publisher. Delivery uses a separate transaction with a row lock and a 15-second transaction timeout; failure to record an accepted event may result in redelivery.
+
+The shared wrapper and its Topcoder core dependency are pinned to Git commits. `pnpm-workspace.yaml` allows Git subdependencies for this integration and explicitly skips optional native DTrace builds.
 
 ## Database access
 

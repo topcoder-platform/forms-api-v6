@@ -4,3 +4,8 @@ allowBuilds:
   esbuild: true
   prisma: true
   '@scarf/scarf': false
+  dtrace-provider: false
+# The shared Bus API wrapper depends on Topcoder's Git-hosted core library.
+blockExoticSubdeps: false
+overrides:
+  tc-core-library-js: github:topcoder-platform/tc-core-library-js#323567bc50e433ae488b656f9f94e821ebaf3062

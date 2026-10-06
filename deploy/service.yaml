@@ -54,7 +54,7 @@ Parameters:
     Description: Bootstrap at zero; deploy after database migration succeeds.
   CorsOrigins:
     Type: String
-    Default: https://www.topcoder-dev.com
+    Default: https://www.topcoder-dev.com,https://reports.topcoder-dev.com,https://platform-ui.topcoder-dev.com
   ParameterPrefix:
     Type: String
     Default: /config/forms-api-v6/appvar
@@ -226,14 +226,12 @@ Resources:
             - {Name: NODE_ENV, Value: production}
             - {Name: PORT, Value: '3000'}
             - {Name: AWS_REGION, Value: !Ref 'AWS::Region'}
-            - {Name: AUTH_MODE, Value: hs256}
             - {Name: CORS_ORIGINS, Value: !Ref CorsOrigins}
             - {Name: TRUST_PROXY_CIDRS, Value: '10.0.0.0/8'}
           Secrets:
             - {Name: DATABASE_URL, ValueFrom: !Sub '${ParameterPrefix}/DATABASE_URL'}
             - {Name: AUTH_SECRET, ValueFrom: /config/common/global-appvar/AUTH_SECRET}
             - {Name: VALID_ISSUERS, ValueFrom: !Sub '${ParameterPrefix}/VALID_ISSUERS'}
-            - {Name: AUTH_AUDIENCE, ValueFrom: !Sub '${ParameterPrefix}/AUTH_AUDIENCE'}
           HealthCheck:
             Command: [CMD-SHELL, 'node -e "fetch(\"http://127.0.0.1:3000/v6/forms/health/ready\").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"']
             Interval: 30

@@ -1,0 +1,137 @@
+[
+  {
+    "name": "/config/forms-api-v6/appvar/DATABASE_URL",
+    "type": "SecureString",
+    "requiresReplacement": true
+  },
+  {
+    "name": "/config/forms-api-v6/appvar/MIGRATION_DATABASE_URL",
+    "type": "SecureString",
+    "requiresReplacement": true
+  },
+  {
+    "name": "/config/forms-api-v6/appvar/AUTH0_CLIENT_ID",
+    "type": "SecureString",
+    "requiresReplacement": true
+  },
+  {
+    "name": "/config/forms-api-v6/appvar/AUTH0_CLIENT_SECRET",
+    "type": "SecureString",
+    "requiresReplacement": true
+  },
+  {
+    "name": "/config/forms-api-v6/appvar/BUSAPI_URL",
+    "type": "SecureString",
+    "requiresReplacement": false
+  },
+  {
+    "name": "/config/forms-api-v6/appvar/VALID_ISSUERS",
+    "type": "SecureString",
+    "requiresReplacement": false
+  },
+  {
+    "name": "/config/forms-api-v6/appvar/NODE_ENV",
+    "type": "SecureString",
+    "requiresReplacement": false
+  },
+  {
+    "name": "/config/forms-api-v6/appvar/PORT",
+    "type": "SecureString",
+    "requiresReplacement": false
+  },
+  {
+    "name": "/config/forms-api-v6/appvar/AWS_REGION",
+    "type": "SecureString",
+    "requiresReplacement": false
+  },
+  {
+    "name": "/config/forms-api-v6/appvar/CORS_ORIGINS",
+    "type": "SecureString",
+    "requiresReplacement": false
+  },
+  {
+    "name": "/config/forms-api-v6/appvar/TRUST_PROXY_CIDRS",
+    "type": "SecureString",
+    "requiresReplacement": false
+  },
+  {
+    "name": "/config/forms-api-v6/appvar/AUTH_CLAIM_NAMESPACE",
+    "type": "SecureString",
+    "requiresReplacement": false
+  },
+  {
+    "name": "/config/forms-api-v6/appvar/THROTTLE_LIMIT",
+    "type": "SecureString",
+    "requiresReplacement": false
+  },
+  {
+    "name": "/config/forms-api-v6/appvar/KAFKA_ERROR_TOPIC",
+    "type": "SecureString",
+    "requiresReplacement": false
+  },
+  {
+    "name": "/config/forms-api-v6/deployvar/AWS_REPOSITORY",
+    "type": "SecureString",
+    "requiresReplacement": false
+  },
+  {
+    "name": "/config/forms-api-v6/deployvar/AWS_ECS_SERVICE",
+    "type": "SecureString",
+    "requiresReplacement": false
+  },
+  {
+    "name": "/config/forms-api-v6/deployvar/AWS_ECS_TASK_FAMILY",
+    "type": "SecureString",
+    "requiresReplacement": false
+  },
+  {
+    "name": "/config/forms-api-v6/deployvar/AWS_ECS_CONTAINER_NAME",
+    "type": "SecureString",
+    "requiresReplacement": false
+  },
+  {
+    "name": "/config/forms-api-v6/deployvar/AWS_ECS_CLUSTER",
+    "type": "SecureString",
+    "requiresReplacement": false
+  },
+  {
+    "name": "/config/forms-api-v6/deployvar/AWS_ECS_PORTS",
+    "type": "SecureString",
+    "requiresReplacement": false
+  },
+  {
+    "name": "/config/forms-api-v6/deployvar/AWS_ECS_FARGATE_CPU",
+    "type": "SecureString",
+    "requiresReplacement": false
+  },
+  {
+    "name": "/config/forms-api-v6/deployvar/AWS_ECS_FARGATE_MEMORY",
+    "type": "SecureString",
+    "requiresReplacement": false
+  },
+  {
+    "name": "/config/forms-api-v6/deployvar/AWS_ECS_CONTAINER_CPU",
+    "type": "SecureString",
+    "requiresReplacement": false
+  },
+  {
+    "name": "/config/forms-api-v6/deployvar/AWS_ECS_CONTAINER_MEMORY_RESERVATION",
+    "type": "SecureString",
+    "requiresReplacement": false
+  },
+  {
+    "name": "/config/forms-api-v6/deployvar/AWS_ECS_READONLY_ROOTFILESYSTEM",
+    "type": "SecureString",
+    "requiresReplacement": false
+  },
+  {
+    "name": "/config/forms-api-v6/deployvar/AWS_ECS_TASK_ROLE_ARN",
+    "type": "SecureString",
+    "requiresReplacement": false
+  },
+  {
+    "name": "/config/forms-api-v6/deployvar/AWS_ECS_CONTAINER_HEALTH_CMD",
+    "type": "SecureString",
+    "requiresReplacement": false
+  }
+]

@@ -13,13 +13,15 @@ import { isPublicForm, type FormField, type PublicForm } from '../contracts';
 export interface TopcoderFormProps {
   formKey: string;
   apiBaseUrl: string;
+  kafka?: boolean;
+  hiddenAnswers?: Readonly<Record<string, string>>;
   getAccessToken?: () => Promise<string | undefined>;
 }
 
 /**
  * Renders an API-owned schema referenced by a Payload block, preserving inputs and retry keys on failure.
  * Cancels pending work when the block reference changes so an old receipt cannot complete a new form.
- * @param props Stable form key, public API base ending in /v6, and optional signed-in member token provider.
+ * @param props Stable form key, public API base ending in /v6, optional token provider, Kafka opt-in, and API-validated hidden answer defaults.
  * @returns Accessible loading, form, error, or receipt UI; submission failures are displayed without throwing.
  * @throws No errors during ordinary rendering; fetch/token failures are caught and displayed.
  */
@@ -27,6 +29,8 @@ export function TopcoderForm({
   formKey,
   apiBaseUrl,
   getAccessToken,
+  kafka = false,
+  hiddenAnswers = {},
 }: TopcoderFormProps): ReactNode {
   const [schema, setSchema] = useState<PublicForm | null>(null);
   const [state, setState] = useState<
@@ -84,7 +88,8 @@ export function TopcoderForm({
     const data = new FormData(event.currentTarget);
     const body = JSON.stringify({
       version: schema.version,
-      answers: collectAnswers(schema.fields, data),
+      answers: { ...collectAnswers(schema.fields, data), ...hiddenAnswers },
+      ...(kafka ? { kafka: true } : {}),
       sourcePage: window.location.pathname,
       website: data.get('_website') ?? '',
     });
@@ -130,9 +135,11 @@ export function TopcoderForm({
             ? 'This form changed or this attempt conflicts with a previous submission. Reload the page before submitting again.'
             : response.status === 401
               ? 'Please sign in again to submit this form.'
-              : response.status === 429
-                ? 'Too many requests. Please wait a minute and try again.'
-                : 'Your submission could not be saved. Check the fields and try again.',
+              : response.status === 503
+                ? 'Your submission may be saved, but delivery is not confirmed. Please retry without changing your answers.'
+                : response.status === 429
+                  ? 'Too many requests. Please wait a minute and try again.'
+                  : 'Your submission could not be saved. Check the fields and try again.',
         );
         setState('ready');
         return;
@@ -187,14 +194,16 @@ export function TopcoderForm({
         >
           {schema.title}
         </legend>
-        {schema.fields.map((field) => (
-          <FieldControl
-            key={field.key}
-            field={field}
-            id={`${instance}-${field.key}`}
-            error={fieldErrors[field.key]}
-          />
-        ))}
+        {schema.fields
+          .filter((field) => !Object.hasOwn(hiddenAnswers, field.key))
+          .map((field) => (
+            <FieldControl
+              key={field.key}
+              field={field}
+              id={`${instance}-${field.key}`}
+              error={fieldErrors[field.key]}
+            />
+          ))}
         <div
           aria-hidden="true"
           style={{ position: 'absolute', left: '-10000px' }}

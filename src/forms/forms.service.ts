@@ -8,12 +8,27 @@ import {
 } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
 import { isUUID } from 'class-validator';
+import {
+  EventBusService,
+  type FormSubmittedPayload,
+} from '../integrations/event-bus.service';
 import { DbService } from '../db.service';
 import { Prisma } from '../generated/prisma/client';
 import { FieldType, FormStatus } from '../generated/prisma/enums';
 import type { Actor } from '../auth';
-import { DefinitionDto, KEY_PATTERN, PageDto, SubmissionDto } from './dto';
-import { buildReportView, csvCell, reportViewName } from './reporting';
+import {
+  DefinitionDto,
+  KEY_PATTERN,
+  PageDto,
+  ReportDatesDto,
+  SubmissionDto,
+} from './dto';
+import {
+  buildReportView,
+  csvCell,
+  reportDateRange,
+  reportViewName,
+} from './reporting';
 import {
   validateAnswers,
   validateDefinition,
@@ -31,14 +46,17 @@ type Definition = Prisma.FormVersionGetPayload<{
   include: typeof definitionInclude;
 }>;
 
-/** Manages immutable form revisions, publication, typed submission writes, and private reports. */
+/** Manages immutable form revisions, publication, typed submission writes, optional Bus API events, and private reports. */
 @Injectable()
 export class FormsService {
   /**
    * Creates the domain service used by the HTTP controller.
-   * @param db Shared Prisma connection. @throws No errors.
+   * @param db Shared Prisma connection. @param events Optional submission event publisher. @throws No errors.
    */
-  constructor(private readonly db: DbService) {}
+  constructor(
+    private readonly db: DbService,
+    private readonly events: EventBusService,
+  ) {}
 
   /**
    * Idempotently registers a specifically named form.
@@ -69,6 +87,187 @@ export class FormsService {
     });
     const data = forms.slice(0, 100);
     return { data, nextCursor: forms.length > 100 ? data.at(-1)!.key : null };
+  }
+
+  /**
+   * Lists published/retired forms for reporters without granting editing access.
+   * @param after Optional form-key cursor. @returns Up to 100 named forms and a continuation key.
+   * @throws BadRequestException for invalid cursors; propagates database read errors.
+   */
+  async reportDirectory(after?: string) {
+    if (after && !KEY_PATTERN.test(after))
+      throw new BadRequestException('Invalid form cursor.');
+    const forms = await this.db.form.findMany({
+      where: {
+        ...(after ? { key: { gt: after } } : {}),
+        versions: { some: { publishedAt: { not: null } } },
+      },
+      orderBy: { key: 'asc' },
+      take: 101,
+      select: {
+        key: true,
+        versions: {
+          where: { publishedAt: { not: null } },
+          orderBy: { version: 'desc' },
+          take: 1,
+          select: { title: true },
+        },
+      },
+    });
+    const data = forms
+      .slice(0, 100)
+      .map((form) => ({ key: form.key, title: form.versions[0].title }));
+    return { data, nextCursor: forms.length > 100 ? data.at(-1)!.key : null };
+  }
+
+  /**
+   * Reads a form across all published revisions for the reports portal.
+   * @param key Form key. @param page Inclusive dates and cursor pagination. @param snapshot Export upper timestamp bound.
+   * @returns Stable union columns, typed rows, total matching count, and next cursor.
+   * @throws NotFoundException for unknown forms; BadRequestException for invalid dates/cursors; database errors on failure.
+   */
+  async reportForm(key: string, page: PageDto, snapshot?: Date) {
+    reportViewName(key, 1);
+    const dates = reportDateRange(page);
+    const form = await this.db.form.findUnique({
+      where: { key },
+      include: {
+        versions: {
+          where: { publishedAt: { not: null } },
+          orderBy: { version: 'asc' },
+          include: definitionInclude,
+        },
+      },
+    });
+    if (!form) throw new NotFoundException('Form not found.');
+    const where: Prisma.SubmissionWhereInput = {
+      versionId: { in: form.versions.map((version) => version.id) },
+      createdAt: { ...dates, ...(snapshot ? { lte: snapshot } : {}) },
+    };
+    if (
+      page.after &&
+      !(await this.db.submission.findFirst({
+        where: { ...where, id: page.after },
+      }))
+    )
+      throw new BadRequestException(
+        'Cursor does not belong to this form and date range.',
+      );
+    const [submissions, total] = await Promise.all([
+      this.db.submission.findMany({
+        where,
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        take: page.limit + 1,
+        ...(page.after ? { cursor: { id: page.after }, skip: 1 } : {}),
+        include: {
+          answers: {
+            include: {
+              field: true,
+              option: true,
+              selections: { include: { option: true } },
+            },
+          },
+          version: true,
+        },
+      }),
+      this.db.submission.count({ where }),
+    ]);
+    const fields = [
+      ...new Map(
+        form.versions
+          .flatMap((version) => version.fields)
+          .map((field) => [field.key, field]),
+      ).values(),
+    ];
+    const columns = [
+      'submission_id',
+      'submitted_at',
+      'member_id',
+      'source_page',
+      'form_version',
+      ...fields.map((field) => field.key),
+    ];
+    const data = submissions.slice(0, page.limit).map((submission) => {
+      const row: Record<string, unknown> = Object.fromEntries(
+        columns.map((column) => [column, null]),
+      );
+      Object.assign(row, {
+        submission_id: submission.id,
+        submitted_at: submission.createdAt.toISOString(),
+        member_id: submission.memberId,
+        source_page: submission.sourcePage,
+        form_version: submission.version.version,
+      });
+      for (const answer of submission.answers) {
+        row[answer.field.key] =
+          answer.type === FieldType.MULTI_SELECT
+            ? answer.selections
+                .sort((a, b) => a.option.position - b.option.position)
+                .map((selection) => selection.option.key)
+            : (answer.textValue ??
+              answer.integerValue ??
+              answer.decimalValue?.toFixed() ??
+              answer.booleanValue ??
+              answer.dateValue?.toISOString().slice(0, 10) ??
+              answer.option?.key ??
+              null);
+      }
+      return row;
+    });
+    return {
+      form: key,
+      columns,
+      labels: Object.fromEntries(
+        fields.map((field) => [field.key, field.label]),
+      ),
+      data,
+      total,
+      nextCursor:
+        submissions.length > page.limit ? submissions[page.limit - 1].id : null,
+    };
+  }
+
+  /**
+   * Prepares a complete CSV export, validating the request before HTTP headers are sent.
+   * @param key Form key. @param dates Inclusive date filters, without table pagination.
+   * @returns Async CSV chunks with one header and all matching rows, fetched in bounded batches.
+   * @throws The same errors as reportForm(); later database failures interrupt the response stream.
+   */
+  async exportForm(key: string, dates: ReportDatesDto) {
+    const snapshot = new Date();
+    const page: PageDto = { ...dates, limit: 1000 };
+    const first = await this.reportForm(key, page, snapshot);
+    return this.csvChunks(key, page, snapshot, first);
+  }
+
+  /**
+   * Streams full-report CSV pages with backpressure and fixed columns from export start.
+   * @param key Form key. @param page Validated dates. @param snapshot Upper time bound. @param first First report page.
+   * @returns CSV chunks consumed by the HTTP stream. @throws Database errors if a later page cannot be read.
+   */
+  private async *csvChunks(
+    key: string,
+    page: PageDto,
+    snapshot: Date,
+    first: Awaited<ReturnType<FormsService['reportForm']>>,
+  ) {
+    const columns = first.columns;
+    yield columns.map(csvCell).join(',') + '\r\n';
+    let report = first;
+    while (true) {
+      yield report.data
+        .map(
+          (row) =>
+            columns.map((column) => csvCell(row[column])).join(',') + '\r\n',
+        )
+        .join('');
+      if (!report.nextCursor) return;
+      report = await this.reportForm(
+        key,
+        { ...page, after: report.nextCursor },
+        snapshot,
+      );
+    }
   }
 
   /**
@@ -262,10 +461,10 @@ export class FormsService {
   }
 
   /**
-   * Validates against the pinned version and saves the entire typed submission in one transaction.
-   * @param key Form key. @param input Answer envelope. @param idempotencyKey Caller-generated UUID. @param actor Optional verified member.
+   * Saves the typed submission atomically, then publishes requested events after commit.
+   * @param key Form key. @param input Answer envelope with optional Kafka opt-in. @param idempotencyKey Caller-generated UUID. @param actor Optional verified member.
    * @returns Receipt without answers or identity; exact retries return the original receipt even after retirement.
-   * @throws BadRequestException for invalid answers; UnauthorizedException for missing member identity; ForbiddenException for machine submissions; ConflictException for stale versions or changed retry payloads.
+   * @throws BadRequestException for invalid answers; UnauthorizedException for missing member identity; ForbiddenException for machine submissions; ConflictException for stale versions or changed retry payloads; ServiceUnavailableException for Bus API failure (retry the same request).
    */
   async submit(
     key: string,
@@ -281,7 +480,7 @@ export class FormsService {
       throw new ForbiddenException(
         'Machine tokens cannot submit visitor forms.',
       );
-    return this.db.$transaction(
+    const result = await this.db.$transaction(
       async (tx) => {
         await this.lockForm(tx, key);
         const definition = await this.findVersion(tx, key, input.version);
@@ -292,10 +491,20 @@ export class FormsService {
         const validated = validateAnswers(definition.fields, input.answers);
         const requestHash = digest({
           version: input.version,
+          // Preserve hashes for existing submissions that did not request Kafka.
+          ...(input.kafka === true ? { kafka: true } : {}),
           memberId: actor?.memberId ?? null,
           sourcePage: input.sourcePage ?? null,
           answers: validated.map(({ field, value }) => [field.key, value]),
         });
+        const eventData = {
+          formKey: key,
+          memberId: actor?.memberId ?? null,
+          sourcePage: input.sourcePage ?? null,
+          answers: Object.fromEntries(
+            validated.map(({ field, value }) => [field.key, value]),
+          ),
+        };
         const existing = await tx.submission.findUnique({
           where: {
             versionId_idempotencyKey: {
@@ -310,6 +519,7 @@ export class FormsService {
               'Idempotency-Key was already used for a different submission.',
             );
           return {
+            eventData,
             id: existing.id,
             version: input.version,
             submittedAt: existing.createdAt,
@@ -326,11 +536,13 @@ export class FormsService {
             requestHash,
             memberId: actor?.memberId,
             sourcePage: input.sourcePage,
+            ...(input.kafka === true ? { event: { create: {} } } : {}),
           },
         });
         for (const answer of validated)
           await this.writeAnswer(tx, submission.id, definition.id, answer);
         return {
+          eventData,
           id: submission.id,
           version: input.version,
           submittedAt: submission.createdAt,
@@ -338,29 +550,67 @@ export class FormsService {
       },
       { timeout: 15000 },
     );
+    const { eventData, ...receipt } = result;
+    if (input.kafka === true) {
+      await this.publishSubmission({
+        ...eventData,
+        submissionId: receipt.id,
+        version: receipt.version,
+        submittedAt: receipt.submittedAt.toISOString(),
+      });
+    }
+    return receipt;
+  }
+
+  /**
+   * Serializes delivery attempts for a committed submission across service replicas.
+   * @param payload Validated submission data with its stable receipt identity.
+   * @returns Nothing once delivery is recorded or was already completed.
+   * @throws Bus API or database errors; an identical submission retry resumes delivery.
+   */
+  private async publishSubmission(
+    payload: FormSubmittedPayload,
+  ): Promise<void> {
+    await this.db.$transaction(
+      async (tx) => {
+        const [event] = await tx.$queryRaw<{ publishedAt: Date | null }[]>`
+        SELECT "publishedAt" FROM "forms"."SubmissionEvent"
+        WHERE "submissionId" = ${payload.submissionId}::uuid FOR UPDATE
+      `;
+        if (!event) throw new Error('Submission event receipt is missing.');
+        if (event.publishedAt) return;
+        await this.events.publishSubmission(payload);
+        await tx.submissionEvent.update({
+          where: { submissionId: payload.submissionId },
+          data: { publishedAt: new Date() },
+        });
+      },
+      { timeout: 15000 },
+    );
   }
 
   /**
    * Reads a bounded submission page with stable named columns for private reporting.
-   * @param key Form key. @param version Published or retired revision. @param page Page size and optional prior receipt ID.
+   * @param key Form key. @param version Published or retired revision. @param page Page size, inclusive UTC dates, and optional prior receipt ID.
    * @returns Column metadata, rows, and next cursor; numeric decimals are exact strings.
    * @throws BadRequestException for a cursor outside this version; ConflictException for drafts; NotFoundException for missing forms.
    */
   async report(key: string, version: number, page: PageDto) {
+    const dates = reportDateRange(page);
     const definition = await this.findVersion(this.db, key, version);
     if (definition.status === FormStatus.DRAFT)
       throw new ConflictException('Draft versions have no submission report.');
     if (
       page.after &&
       !(await this.db.submission.findFirst({
-        where: { id: page.after, versionId: definition.id },
+        where: { id: page.after, versionId: definition.id, createdAt: dates },
       }))
     )
       throw new BadRequestException(
         'Cursor does not belong to this form version.',
       );
     const submissions = await this.db.submission.findMany({
-      where: { versionId: definition.id },
+      where: { versionId: definition.id, createdAt: dates },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       take: page.limit + 1,
       ...(page.after ? { cursor: { id: page.after }, skip: 1 } : {}),

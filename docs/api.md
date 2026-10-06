@@ -23,9 +23,11 @@ Keys are lowercase snake_case, begin with a letter, and contain at most 40 chara
 
 ## Authentication
 
-Authorization is deny-by-default. Public routes may omit a token; supplying an invalid token still returns 401. Configure either HTTPS JWKS/RS256 or the legacy HS256 shared-secret mode. The two verification paths have separate algorithm allowlists. Signature, issuer, audience, expiry, issued-at presence, and subject are required.
+Authorization is deny-by-default. Public routes may omit a token; supplying an invalid token still returns 401. Forms uses `tc-core-library-js`'s `middleware.jwtAuthenticator`, the same entry point used by Reports, Engagements, Support, and Bus API. It verifies HS256 tokens using `AUTH_SECRET` and RS256 tokens using the trusted issuer's `/.well-known/jwks.json`, with cached signing keys. The issuer must be an exact member of `VALID_ISSUERS`. Forms rejects other algorithms before invoking the shared verifier, requires `exp` and `iat`, and preserves the generic 401 response for authentication failures.
 
-Roles are matched case-insensitively. Roles and userId are read from direct claims or the exact `AUTH_CLAIM_NAMESPACE` prefix, default `https://topcoder.com/`. Subject is retained for editor audit; member forms require an actual `userId` claim. A missing userId is not silently replaced with an Auth0 subject.
+Audience handling follows the shared Topcoder library: there is no Forms-specific audience check. This permits both legacy member JWTs without `aud` and Auth0 browser tokens whose `aud` is the Topcoder application client ID. `AUTH_MODE`, `AUTH_AUDIENCE`, and `JWKS_URL` no longer select or restrict inbound authentication. Trust is established by signature, issuer and token lifetime; Forms still enforces the human-role/M2M-scope rules below.
+
+The shared middleware normalizes Topcoder namespaced roles and user IDs, including `https://topcoder-dev.com/roles` and `https://topcoder-dev.com/userId`, before Forms builds its actor. Roles are matched case-insensitively. The actor adapter also supports direct claims and an `AUTH_CLAIM_NAMESPACE` fallback, default `https://topcoder.com/`. Subject is retained for editor audit; legacy human tokens without `sub` use their verified numeric `userId`. Member forms require an actual `userId`; an Auth0 subject is never silently substituted for member identity. Standard M2M tokens include `azp`, `sub`, `gty=client-credentials`, and space-separated `scope` claims.
 
 | Caller    | Manage access                                 | Report access                            | Submit access                                           |
 | --------- | --------------------------------------------- | ---------------------------------------- | ------------------------------------------------------- |
@@ -69,9 +71,42 @@ Idempotency-Key: 6b3d585c-f134-4e06-a6d5-6ea42fc1c7ce
 
 Receipts contain no answers or member details. All answers must belong to the pinned stored revision; client-supplied field definitions and extra answer keys are rejected. Server validation does not coerce number or boolean strings. Decimal values are exact strings; multi-select answers are arrays of option keys. Every answer and its selections commit atomically with the envelope.
 
+## Optional Kafka publication
+
+Include `"kafka": true` in the submission body alongside `version`, `answers`, and `sourcePage` to publish the accepted submission to **`form.submitted`** through the authenticated Topcoder Bus API. The exact string `"true"` is also accepted; omitted, `false`, or `"false"` does not publish. Other non-null values are rejected. This is envelope metadata, not an answer field or query parameter. Answer values retain their strict type validation.
+
+```json
+{
+  "version": 1,
+  "answers": { "email": "member@example.com" },
+  "sourcePage": "/events",
+  "kafka": true
+}
+```
+
+The Bus API envelope uses `topic: "form.submitted"`, `originator: "forms-api-v6"`, `mime-type: "application/json"`, the submission timestamp, and the submission UUID as `key`. Its `payload` is:
+
+```json
+{
+  "submissionId": "c1ab5d27-722a-431f-a811-46737109de1f",
+  "formKey": "event_interest",
+  "version": 1,
+  "submittedAt": "2026-09-28T01:00:00.000Z",
+  "memberId": null,
+  "sourcePage": "/events",
+  "answers": { "email": "member@example.com" }
+}
+```
+
+Answers use their validated, canonical values (including exact decimal strings, booleans, numbers, date strings, and option keys); omitted optional answers stay omitted. Member identity comes from verified claims. The honeypot and Kafka flag are excluded from the event. The HTTP receipt remains unchanged.
+
+Publication happens only after the submission and all answers commit. A successful delivery is recorded separately and identical retries, including concurrent retries, do not publish again. Changing the Kafka opt-in for an existing retry key returns 409; omission and false are equivalent and preserve compatibility with older submissions.
+
+If Bus API is unavailable or unconfigured, the submission remains saved and the request returns **503**. Retry the identical body and `Idempotency-Key` to resume delivery, even after retirement. There is no background retry worker. A crash or lost acknowledgement after Bus API accepts an event but before the delivery receipt commits can cause redelivery; consumers must deduplicate by `submissionId`. Invalid or rejected submissions never publish.
+
 ## Retry and error handling
 
-Generate one cryptographically random UUID for a logical submission attempt. Reuse it with the same revision, answers, member identity, and source page after a timeout or lost response. The service canonicalizes decimals and multi-select order before hashing. An identical retry returns the original receipt; changed content with that key returns 409. This key remains reserved while the submission is retained.
+Generate one cryptographically random UUID for a logical submission attempt. Reuse it with the same revision, answers, member identity, source page, and Kafka opt-in after a timeout or lost response. The service canonicalizes decimals and multi-select order before hashing. An identical retry returns the original receipt; changed content with that key returns 409. This key remains reserved while the submission is retained.
 
 A previously accepted attempt can be retried after a version is retired. A new attempt targeting a draft/retired version returns 409. A member-form retry still requires the member token. The API does not replay a submission under a different member identity.
 
@@ -98,3 +133,32 @@ Envelope/DTO errors use Nest's standard `message` array. Clients should handle b
 | 500/503 | Service/database failure; preserve input and retry appropriately.   |
 
 Reports are ordered by creation timestamp and UUID. Pagination does not create a database snapshot; use SQL/reporting jobs when an exact export snapshot is required. CSV is quoted and formula-prefixed text is neutralized for spreadsheets; arrays are JSON-encoded only in the exported CSV cell. SQL data remains fully relational.
+
+## Forms portal reporting
+
+All routes below require **Report** access and return `Cache-Control: no-store`.
+They do not grant form management privileges.
+
+| Route (under `/v6`) | Result |
+| --- | --- |
+| `GET /forms/reports/directory?after=key` | `{ data: [{ key, title }], nextCursor }`; 100 forms per page, most recent published/retired title, no drafts. |
+| `GET /forms/:key/submissions?limit=25&after=uuid&startDate=2026-09-01&endDate=2026-09-30` | `{ form, columns, labels, data, total, nextCursor }` across all published/retired revisions. |
+| `GET /forms/:key/submissions/export?startDate=2026-09-01&endDate=2026-09-30` | Complete streaming CSV with one header, independently of the table page. Omit both dates for all data. |
+
+Dates are optional **inclusive UTC calendar dates** in `YYYY-MM-DD`; an end date
+includes timestamps through 23:59:59.999. Invalid calendar dates and reversed
+ranges return 400. Existing version-specific JSON/CSV endpoints accept these same
+filters. A cursor must belong to the selected form/revision and date range.
+
+The all-revision report unions field keys in first-seen order. `labels` contains
+the latest published label for each key; absent answers are null. Existing metadata
+columns (`submission_id`, `submitted_at`, `member_id`, `source_page`, `form_version`)
+remain present. Rows sort by timestamp then UUID; `total` counts matching rows
+before pagination. Decimal values remain strings and multi-select values remain
+arrays. A field reused with a different type retains each revision's original value.
+
+The complete export accepts only date filters, not `limit` or `after`. It fetches
+1,000 rows per batch, applies backpressure, stops when the client disconnects, and
+uses the established CSV escaping/formula protection. Columns and an upper
+submission timestamp are captured at export start. This is not a repeatable-read
+database snapshot: transactions already in flight can commit during export.

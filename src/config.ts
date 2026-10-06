@@ -1,15 +1,14 @@
 import 'dotenv/config';
+import type { BusApiConfiguration } from 'tc-bus-api-wrapper';
 
 /** Runtime configuration validated once before Nest starts serving requests. */
 export interface AppConfig {
   databaseUrl: string;
+  busApi?: BusApiConfiguration;
   port: number;
   origins: string[];
-  authMode: 'hs256' | 'jwks';
-  authSecret?: string;
-  jwksUrl?: string;
+  authSecret: string;
   issuers: string[];
-  audience: string;
   claimNamespace: string;
   throttleLimit: number;
   trustProxy: string[];
@@ -29,23 +28,12 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     (database.searchParams.has('schema') &&
       database.searchParams.get('schema') !== 'forms')
   ) {
-    throw new Error(
-      'DATABASE_URL must be PostgreSQL using the forms schema.',
-    );
+    throw new Error('DATABASE_URL must be PostgreSQL using the forms schema.');
   }
   database.searchParams.set('schema', 'forms');
-  const authMode = env.AUTH_MODE ?? 'jwks';
-  if (authMode !== 'hs256' && authMode !== 'jwks')
-    throw new Error('AUTH_MODE must be jwks or hs256.');
-  if (authMode === 'hs256' && required(env, 'AUTH_SECRET').length < 32) {
+  const authSecret = required(env, 'AUTH_SECRET');
+  if (authSecret.length < 32)
     throw new Error('AUTH_SECRET must contain at least 32 characters.');
-  }
-  if (
-    authMode === 'jwks' &&
-    new URL(required(env, 'JWKS_URL')).protocol !== 'https:'
-  ) {
-    throw new Error('JWKS_URL must use HTTPS.');
-  }
   const origins = (env.CORS_ORIGINS ?? '')
     .split(',')
     .map((s) => s.trim())
@@ -54,21 +42,14 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     if (new URL(origin).origin !== origin || !/^https?:/.test(origin))
       throw new Error('CORS_ORIGINS must contain exact HTTP(S) origins.');
   }
-  const issuers = required(env, 'VALID_ISSUERS')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-  if (!issuers.length)
-    throw new Error('VALID_ISSUERS must contain at least one issuer.');
+  const issuers = parseIssuers(required(env, 'VALID_ISSUERS'));
   return {
     databaseUrl: database.toString(),
+    busApi: readBusConfig(env),
     port: integerSetting(env.PORT ?? '3000', 1, 65535),
     origins,
-    authMode,
-    authSecret: env.AUTH_SECRET,
-    jwksUrl: env.JWKS_URL,
+    authSecret,
     issuers,
-    audience: required(env, 'AUTH_AUDIENCE'),
     claimNamespace: env.AUTH_CLAIM_NAMESPACE ?? 'https://topcoder.com/',
     throttleLimit: integerSetting(env.THROTTLE_LIMIT ?? '30', 1, 10000),
     trustProxy: (env.TRUST_PROXY_CIDRS ?? '')
@@ -107,3 +88,59 @@ function integerSetting(raw: string, min: number, max: number): number {
 }
 
 export const CONFIG = Symbol('forms.config');
+
+/**
+ * Reads optional outbound Bus API settings without requiring them for ordinary forms.
+ * @param env Environment map used by readConfig.
+ * @returns Wrapper configuration when BUSAPI_URL is set, otherwise undefined.
+ * @throws Error for partial credentials, invalid URLs, or invalid cache duration.
+ */
+function readBusConfig(
+  env: NodeJS.ProcessEnv,
+): BusApiConfiguration | undefined {
+  if (!env.BUSAPI_URL?.trim()) return undefined;
+  const url = new URL(env.BUSAPI_URL.trim());
+  url.pathname = url.pathname.replace(/\/+$/, '');
+  if (
+    !['http:', 'https:'].includes(url.protocol) ||
+    !url.pathname.endsWith('/v6') ||
+    url.search ||
+    url.hash ||
+    url.username ||
+    url.password
+  )
+    throw new Error('BUSAPI_URL must be an HTTP(S) API base ending in /v6.');
+  return {
+    BUSAPI_URL: url.toString().replace(/\/$/, ''),
+    AUTH0_URL: required(env, 'AUTH0_URL'),
+    AUTH0_AUDIENCE: required(env, 'AUTH0_AUDIENCE'),
+    AUTH0_CLIENT_ID: required(env, 'AUTH0_CLIENT_ID'),
+    AUTH0_CLIENT_SECRET: required(env, 'AUTH0_CLIENT_SECRET'),
+    KAFKA_ERROR_TOPIC:
+      env.KAFKA_ERROR_TOPIC?.trim() || 'common.error.reporting',
+    ...(env.TOKEN_CACHE_TIME
+      ? { TOKEN_CACHE_TIME: integerSetting(env.TOKEN_CACHE_TIME, 0, 86400000) }
+      : {}),
+    ...(env.AUTH0_PROXY_SERVER_URL?.trim()
+      ? { AUTH0_PROXY_SERVER_URL: env.AUTH0_PROXY_SERVER_URL.trim() }
+      : {}),
+  };
+}
+
+/**
+ * Accepts the shared Topcoder JSON issuer list or the existing comma-separated form.
+ * @param raw Configured exact trusted issuer URLs.
+ * @returns Nonempty issuer allowlist. @throws Error for malformed or empty lists.
+ */
+function parseIssuers(raw: string): string[] {
+  const values: unknown = raw.startsWith('[')
+    ? JSON.parse(raw)
+    : raw.split(',');
+  if (
+    !Array.isArray(values) ||
+    !values.length ||
+    !values.every((value) => typeof value === 'string' && value.trim())
+  )
+    throw new Error('VALID_ISSUERS must contain nonempty issuer strings.');
+  return values.map((value: string) => value.trim());
+}

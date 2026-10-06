@@ -11,6 +11,8 @@ require database availability. OpenAPI UI is `/v6/forms/api-docs`, with JSON at
 `/v6/forms/api-docs-json`. The root forms list requires an administrator token;
 published schemas and anonymous submissions are public.
 
+Inbound JWT handling uses the same `tc-core-library-js` middleware as the other v6 APIs. Both legacy HS256 and Auth0 RS256 tokens are supported in one deployment. The Forms `VALID_ISSUERS` parameter must contain `https://auth.topcoder-dev.com/` for dev browser sign-in; the library resolves its JWKS and normalizes the dev namespaced roles/user ID. Existing `AUTH_MODE` and `AUTH_AUDIENCE` task settings are ignored by the new runtime. Updating the application image is sufficient when the issuer is already allowed; otherwise update the issuer parameter and roll the tasks as well. See [authentication configuration](../docs/operations.md#environment).
+
 ## Initial environment setup
 
 Dev uses schema `forms` in database `topcoder-services` on the existing services RDS instance. The database administrator provisions the `forms` login and schema; this service does not create a separate database or rotate that login. All tables, enums, functions, reporting views, and Prisma migration history remain in `forms`.
@@ -32,39 +34,76 @@ The copy refuses a nonempty target. The source is retained and fenced against fu
 
 ## Releases
 
-`.circleci/config.yml` runs lint, build, type checks, unit tests, migrations, and
-real-PostgreSQL integration tests. After verification, `develop` deploys dev and
-`master` deploys production. Both use Topcoder's `org-global` context and pinned
-`tc-deploy-scripts` credential helper, matching the other services. Deployments are
-serialized separately per environment. The CircleCI project must be connected in
-the Topcoder organization to use that shared context.
+`.circleci/config.yml` uses the same pinned `tc-deploy-scripts` v1.4.20 flow as
+`bus-api-v6`: `awsconfiguration.sh` loads credentials, `psvar-processor.sh` loads
+`/config/forms-api-v6/deployvar`, and `master_deploy.sh` publishes the runtime image
+and updates ECS with service/global SSM secret references. `develop` deploys dev;
+`master` deploys production. Both use the Topcoder `org-global` context and are
+serialized separately per environment.
 
-The same release command can run from an authorized workstation:
+Docker builds the runtime as `forms-api-v6:latest` and a separate migration image.
+The existing `release.py` now only pushes and runs the migration image in the
+service's private subnets, using `MIGRATION_DATABASE_URL` as its sole secret.
+It clones the service's current task definition and records the migration image
+digest and task ARN in `deploy/release-<environment>.json`. A nonzero migration
+exit stops the job before `master_deploy.sh` can deploy the runtime. On timeout,
+inspect the reported migration task before retrying.
+
+The runtime deployment command is the standard shared invocation:
+
+```sh
+./master_deploy.sh -d ECS -e DEV -t latest \
+  -j "/config/${APPNAME}/appvar,/config/common/global-appvar" \
+  -i "$APPNAME" -p FARGATE
+```
+
+The shared script tags the runtime image with `CIRCLE_BUILD_NUM`, registers the
+ECS task definition, updates the existing service, and checks rollout status.
+Its Fargate template uses the shared `ecsTaskExecutionRole` and writes logs to
+`/aws/ecs/<cluster>` with the deployment environment as stream prefix. Ensure
+that role can read both SSM prefixes (and decrypt any custom KMS key).
+The service's ALB readiness checks and deployment circuit breaker remain in place.
+Database migrations must remain compatible with the previous runtime; service
+rollback does not undo schema or data migrations.
+
+Provision `/config/forms-api-v6/deployvar` before the first release in each account:
+
+| Parameter | Value |
+| --- | --- |
+| `AWS_REPOSITORY`, `AWS_ECS_SERVICE`, `AWS_ECS_TASK_FAMILY`, `AWS_ECS_CONTAINER_NAME` | `forms-api-v6` |
+| `AWS_ECS_CLUSTER` | Existing cluster, e.g. `topcoder-infrastructure` |
+| `AWS_ECS_PORTS` | `3000:3000:tcp` |
+| `AWS_ECS_FARGATE_CPU`, `AWS_ECS_FARGATE_MEMORY` | `512`, `1024` for the current Forms task size |
+| `AWS_ECS_CONTAINER_CPU`, `AWS_ECS_CONTAINER_MEMORY_RESERVATION` | `0`, `512` |
+| `AWS_ECS_READONLY_ROOTFILESYSTEM` | `true` |
+| `AWS_ECS_TASK_ROLE_ARN` | Existing Forms task role **name**, without its ARN prefix |
+| `AWS_ECS_CONTAINER_HEALTH_CMD` | Readiness command, with double quotes escaped for `psvar-processor.sh`'s shell export format |
+
+Move runtime environment settings into service appvars: `NODE_ENV=production`,
+`PORT=3000`, `AWS_REGION=us-east-1`, and the environment's existing `CORS_ORIGINS`
+and `TRUST_PROXY_CIDRS`. The shared template obtains runtime settings from SSM,
+not from the previous CloudFormation task definition. Production requires its own
+origins, credentials, task role, and deployvars.
+
+Local verification:
 
 ```sh
 nvm use
 pnpm lint && pnpm build && pnpm test
-docker build --target migrate -t forms-api-v6:migrate-candidate .
-docker build --target runtime -t forms-api-v6:candidate .
-python3 -u deploy/release.py dev dev-UNIQUE_RELEASE_TAG
 ```
 
-Use `--network=host` for local Docker builds if the workstation bridge cannot
-resolve the registry. `release.py` requires boto3 and Docker and checks account and
-stack environment before pushing. Runtime and migration images receive immutable
-release tags. The migration task runs in the same private subnets as the service,
-uses the configured schema-owner login, and applies only the schema-scoped migrations.
-Only exit code zero permits CloudFormation promotion. ECS keeps the previous task
-healthy during rollout and uses its deployment circuit breaker to roll back failed
-runtime starts. Database migrations must remain compatible with the previous
-runtime; the service rollback does not undo data/schema migrations.
+CloudFormation remains responsible for infrastructure. Application releases now
+update the ECS service directly, as in the other v6 services; the stack's ImageTag
+and TaskDefinition output no longer track the active application release. When
+changing infrastructure, preserve the live service task definition to avoid
+restoring the stack's older task definition. A newly bootstrapped service with
+DesiredCount=0 is started by `activate.py` after its migrations and first runtime
+deployment. This final CircleCI check preserves existing nonzero replica counts,
+verifies the requested image, and fails if ECS rolls back or never becomes healthy.
 
-The script writes `release-dev.json` or `release-production.json` containing image
-digests and AWS task/stack identifiers. On an observation timeout, inspect the
-reported task/stack operation before retrying; do not start a second migration
-while the first remains active. Infrastructure edits are applied separately using
-CloudFormation with the current ImageTag and environment parameters preserved;
-normal app releases retain the existing stack template and parameters.
+Production infrastructure and the configuration handoff are recorded in
+[production.md](production.md). `production.parameters.json` describes initial
+creation at zero replicas; do not reuse its bootstrap image/count for later updates.
 
 ## Dev sample
 
@@ -73,3 +112,20 @@ normal app releases retain the existing stack template and parameters.
 It refuses production and conflicting published definitions. The corresponding
 CMS seed lives in `payload-cms/scripts/seed-forms-test.ts`. The website resolves the
 CMS page at `/forms-test` and fetches its schema from the public Forms API at runtime.
+
+## Runtime appvar injection
+
+Forms invokes the shared `master_deploy.sh` directly with
+`-j /config/forms-api-v6/appvar,/config/common/global-appvar`. It injects SSM ARN
+references into the runtime task's `secrets` list; service-specific names take
+precedence over matching globals. ECS resolves the values at task startup.
+There is no Forms-specific appvar mapping script or extra Python/YAML dependency.
+
+New releases pick up parameter additions and removals. After changing only an
+existing parameter's value, force a new ECS deployment to refresh running tasks.
+
+For Kafka delivery, create `BUSAPI_URL=https://api.topcoder-dev.com/v6` under the
+Forms dev appvar path. The Forms `AUTH0_CLIENT_ID` / `AUTH0_CLIENT_SECRET` combine
+with shared `AUTH0_URL`, `AUTH0_AUDIENCE`, and optional `AUTH0_PROXY_SERVER_URL` /
+`TOKEN_CACHE_TIME`. Production needs its corresponding URL and authorized credentials.
+Do not decrypt or copy shared values into the service path to perform injection.

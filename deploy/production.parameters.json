@@ -1,0 +1,70 @@
+[
+  {
+    "ParameterKey": "BootstrapOnly",
+    "ParameterValue": "false"
+  },
+  {
+    "ParameterKey": "Environment",
+    "ParameterValue": "production"
+  },
+  {
+    "ParameterKey": "ClusterName",
+    "ParameterValue": "topcoder-infrastructure"
+  },
+  {
+    "ParameterKey": "VpcId",
+    "ParameterValue": "vpc-7cc06b19"
+  },
+  {
+    "ParameterKey": "PrivateSubnetIds",
+    "ParameterValue": "subnet-0d91bddbea456aa6b,subnet-7f657057"
+  },
+  {
+    "ParameterKey": "AlbSecurityGroupId",
+    "ParameterValue": "sg-9225f1db"
+  },
+  {
+    "ParameterKey": "DatabaseSecurityGroupId",
+    "ParameterValue": "sg-930253f6"
+  },
+  {
+    "ParameterKey": "HttpsListenerArn",
+    "ParameterValue": "arn:aws:elasticloadbalancing:us-east-1:409275337247:listener/app/tc-services-alb/eb37e4c9eb22e365/ea2b4e51ee9a1dea"
+  },
+  {
+    "ParameterKey": "ListenerRulePriority",
+    "ParameterValue": "680"
+  },
+  {
+    "ParameterKey": "ApiId",
+    "ParameterValue": "kthgpat40e"
+  },
+  {
+    "ParameterKey": "ApiIntegrationId",
+    "ParameterValue": "6tcvbtt"
+  },
+  {
+    "ParameterKey": "ApiOriginAuthorizerId",
+    "ParameterValue": "ptbwwm"
+  },
+  {
+    "ParameterKey": "ImageTag",
+    "ParameterValue": "bootstrap"
+  },
+  {
+    "ParameterKey": "DesiredCount",
+    "ParameterValue": "0"
+  },
+  {
+    "ParameterKey": "CorsOrigins",
+    "ParameterValue": "https://www.topcoder.com,https://reports.topcoder.com,https://platform-ui.topcoder.com"
+  },
+  {
+    "ParameterKey": "ParameterPrefix",
+    "ParameterValue": "/config/forms-api-v6/appvar"
+  },
+  {
+    "ParameterKey": "SecretsKmsKeyArn",
+    "ParameterValue": ""
+  }
+]

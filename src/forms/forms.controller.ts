@@ -20,8 +20,16 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import type { Response } from 'express';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { Access, type ActorRequest } from '../auth';
-import { CreateFormDto, DefinitionDto, PageDto, SubmissionDto } from './dto';
+import {
+  CreateFormDto,
+  DefinitionDto,
+  PageDto,
+  ReportDatesDto,
+  SubmissionDto,
+} from './dto';
 import { FormsService } from './forms.service';
 
 /** Exposes public form schemas/submissions and separately authorized editing/reporting operations. */
@@ -38,6 +46,36 @@ export class FormsController {
   @ApiOperation({ summary: 'List named forms for editors' })
   list(@Query('after') after?: string) {
     return this.forms.listForms(after);
+  }
+
+  /** Lists reportable form names for a key cursor; returns a private page or validation/database errors. */
+  @Get('reports/directory')
+  @Access('report')
+  @Header('Cache-Control', 'no-store')
+  directory(@Query('after') after?: string) {
+    return this.forms.reportDirectory(after);
+  }
+
+  /** Returns all-revision report columns and one dated page; propagates invalid dates/cursors and missing-form errors. */
+  @Get(':key/submissions')
+  @Access('report')
+  @Header('Cache-Control', 'no-store')
+  reportForm(@Param('key') key: string, @Query() page: PageDto) {
+    return this.forms.reportForm(key, page);
+  }
+
+  /** Streams every matching row as CSV for inclusive dates; validates before sending and propagates read/stream failures. */
+  @Get(':key/submissions/export')
+  @Access('report')
+  @Header('Cache-Control', 'no-store')
+  async exportForm(
+    @Param('key') key: string,
+    @Query() dates: ReportDatesDto,
+    @Res() response: Response,
+  ): Promise<void> {
+    const chunks = await this.forms.exportForm(key, dates);
+    response.type('text/csv').attachment(`${key}.csv`);
+    await pipeline(Readable.from(chunks), response);
   }
 
   /** Registers a named form; accepts its key, returns its identity, and propagates persistence errors. */
@@ -107,7 +145,7 @@ export class FormsController {
     return this.forms.retire(key, version, request.actor!);
   }
 
-  /** Saves an envelope under a UUID retry key; returns a receipt or validation, authentication, stale-version, or conflict errors. */
+  /** Saves an envelope under a UUID retry key; returns a receipt or validation, authentication, stale-version, conflict, or optional Bus API delivery errors. */
   @Post(':key/submissions')
   @Access('public')
   @ApiHeader({
@@ -117,7 +155,8 @@ export class FormsController {
       'One random UUID per attempted submission, reused unchanged on network retries.',
   })
   @ApiOperation({
-    summary: 'Submit against the exact version displayed to the visitor',
+    summary:
+      'Submit against the displayed version; optionally publish with kafka=true',
   })
   submit(
     @Param('key') key: string,
