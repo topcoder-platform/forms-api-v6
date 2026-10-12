@@ -1,4 +1,4 @@
-# Development /lets-talk migration
+# /lets-talk rollout
 
 `examples/lets-talk.json` mirrors the form schema returned by
 `https://www.topcoder.com/__api/forms/XpPgFzW8lmX8frlStzzg0` on 2026-09-28.
@@ -40,12 +40,13 @@ existing Bus API integration. Consumers must deduplicate by `submissionId`.
    ```
 
    `FORMS_ADMIN_TOKEN` must be set without putting it in source control. The script
-   hardcodes the development API, creates no submissions, and fails on differing
+   defaults to the development API. Set `FORMS_API_BASE_URL=https://api.topcoder.com/v6`
+   for production. It creates no submissions and fails on differing
    immutable content. Re-running an identical version is safe; subsequent schema
    changes require a reviewed next version.
 4. Deploy the companion `topcoder-website` develop change and the `platform-ui` dev
    change. No CMS content mutation is required: the website selects the known form
-   component only on the development `/lets-talk` route. Production and other
+   component on the matching dev or production `/lets-talk` route. Other
    routes continue using their existing forms.
 5. Verify the public schema, then submit an explicitly marked development test with
    Kafka configured. Confirm the receipt, event, table row, date filtering, and CSV.
@@ -55,3 +56,23 @@ The React integration accepts `kafka` (false by default) and `hiddenAnswers`
 (empty by default). Hidden answers are merged into the API payload and omitted
 from visible controls. They must match stored field types and validation rules.
 The website maintains its analytics adapter around the same rendering contract.
+
+## Production release order
+
+1. Release the API migration `20261013010000_lets_talk_processor_key`. It corrects
+   the initial flow's `lets-talk` key to `lets_talk` without changing its enabled
+   state or settings, and reroutes retained submissions missing a delivery receipt.
+   The existing migration remains unchanged. Existing successful receipts are preserved.
+2. Publish the reviewed version using the command above with
+   `FORMS_API_BASE_URL=https://api.topcoder.com/v6` and a production admin token.
+3. Deploy forms-processor-v6 through its master pipeline. Set SecureStrings
+   `/config/forms-processor-v6/appvar/LETS_TALK_RECIPIENTS` (comma-separated emails)
+   and `/config/forms-processor-v6/appvar/LETS_TALK_SENDGRID_TEMPLATE_ID` (dynamic
+   template ID). Redeploy to load changed parameters, then enable the database
+   flow after reviewing any queued submissions. See the processor rollout guide.
+4. Release the website production selection. Confirm the public schema and exact
+   `https://www.topcoder.com` CORS origin before switching the live page.
+5. Submit an identified test with `kafka: true`, correlate its submission ID through
+   `form.submitted` and `external.action.email`, and verify the received email.
+   Processor `deliveredAt` means Bus API acceptance; verify provider/inbox delivery
+   separately. No historical HubSpot data is imported.

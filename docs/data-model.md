@@ -114,9 +114,10 @@ Versions and historical reporting views are retained. The service does not impos
 The API owns their migrations; the processor uses these schema-qualified tables
 without running DDL at startup. A flow has a stable ID, form key, enabled flag,
 AND-combined answer predicates (`rules.all`), action name, and JSON action settings.
-The seeded `lets-talk-sales-email` flow matches all `lets-talk` submissions and is
-disabled with TBD recipients, sender, and template. Manage it externally in SQL;
-set `updatedAt` when changing settings. Disabling delivery preserves queued work.
+The seeded `lets-talk-sales-email` flow matches all `lets_talk` submissions and is
+disabled initially. Enable it externally in SQL after configuring the processor
+SSM recipients/template; email-service-v6 supplies the sender. Set `updatedAt`
+when changing the flow. Disabling delivery preserves queued work.
 
 The inbox stores the submitted event before Kafka commit. Routing records a unique
 receipt per submission/flow, including disabled matching flows. Retries read current
@@ -135,3 +136,9 @@ The `sendgrid-email` action name is retained for compatibility, but forms-proces
 now publishes the v3 email contract to `external.action.email` through Bus API.
 `deliveredAt` records Bus API acceptance; email-service-v6 handles provider delivery
 and retries. Optional `fromEmail` overrides that service's default sender.
+
+The additive `20261013010000_lets_talk_processor_key` migration corrects the
+original seed key and reroutes retained events lacking this flow receipt. Existing
+receipts, rules, settings and the enabled flag are preserved. The processor now
+overrides action settings for this flow from its two `LETS_TALK_*` SSM parameters;
+other flows continue using database settings. Enabling remains an operational update.
