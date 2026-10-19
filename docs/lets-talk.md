@@ -16,8 +16,12 @@ Option values are normalized to API-safe keys:
 | `Landing Page` (hidden lead source) | `landing_page` |
 
 The website supplies the existing hidden campaign defaults, including
-`source__c=/lets-talk`; empty UTM fields remain empty. These are validated answers,
-not trusted identity. `sourcePage` is the current pathname. The site submits
+`source__c=/lets-talk`; the website maps URL `utm_source`, `utm_medium`, and
+`utm_campaign` parameters to the matching `utm_*__c` answers, leaving absent
+parameters empty. These are validated answers, not trusted identity. The website
+sends the shared `tcjwt` session as a bearer token when available; the API derives
+`member_id` from verified claims, while anonymous submissions retain a null identity.
+`sourcePage` is the current pathname. The site submits
 `kafka: true` so each accepted attempt publishes `form.submitted` through the
 existing Bus API integration. Consumers must deduplicate by `submissionId`.
 
