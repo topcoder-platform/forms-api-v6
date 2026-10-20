@@ -121,7 +121,7 @@ export class FormsService {
   }
 
   /**
-   * Reads a form across all published revisions for the reports portal.
+   * Reads a form across all published revisions, newest first with descending UUID ties, for the reports portal and CSV.
    * @param key Form key. @param page Inclusive dates and cursor pagination. @param snapshot Export upper timestamp bound.
    * @returns Stable union columns, typed rows, total matching count, and next cursor.
    * @throws NotFoundException for unknown forms; BadRequestException for invalid dates/cursors; database errors on failure.
@@ -156,7 +156,7 @@ export class FormsService {
     const [submissions, total] = await Promise.all([
       this.db.submission.findMany({
         where,
-        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         take: page.limit + 1,
         ...(page.after ? { cursor: { id: page.after }, skip: 1 } : {}),
         include: {

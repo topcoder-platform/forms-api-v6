@@ -144,6 +144,34 @@ describe('forms API with real PostgreSQL', () => {
     expect(report.body.data[0]).toMatchObject({
       source_page: '/lets-talk',
       company: 'Test Company',
+      member_id: null,
+    });
+
+    const attributedAnswers = {
+      ...body.answers,
+      utm_source__c: 'newsletter',
+      utm_medium__c: 'email',
+      utm_campaign__c: 'Fall & Winter',
+    };
+    const memberReceipt = await request(app.getHttpServer())
+      .post(`/v6/forms/${key}/submissions`)
+      .auth(member, { type: 'bearer' })
+      .set('Idempotency-Key', randomUUID())
+      .send({ ...body, answers: attributedAnswers })
+      .expect(201);
+    const memberReport = await request(app.getHttpServer())
+      .get(`/v6/forms/${key}/submissions`)
+      .auth(reporter, { type: 'bearer' })
+      .expect(200);
+    expect(memberReport.body.total).toBe(2);
+    expect(memberReport.body.data[0]).toMatchObject({
+      submission_id: memberReceipt.body.id,
+      member_id: '12345',
+      ...attributedAnswers,
+    });
+    expect(postEvent.mock.calls[1][0].payload).toMatchObject({
+      memberId: '12345',
+      answers: attributedAnswers,
     });
   });
 
@@ -184,7 +212,7 @@ describe('forms API with real PostgreSQL', () => {
       .expect(403);
   });
 
-  it('combines revisions, includes whole UTC end dates, and validates cursors and calendar dates', async () => {
+  it('paginates newest first across revisions, includes whole UTC end dates, and validates cursors and dates', async () => {
     const optionalDefinition = {
       ...definition(),
       fields: definition().fields.map((field) => ({
@@ -253,8 +281,9 @@ describe('forms API with real PostgreSQL', () => {
       .expect(200);
     expect(page.body.total).toBe(2);
     expect(page.body.data[0]).toMatchObject({
-      form_version: 1,
-      new_field: null,
+      submission_id: second.id,
+      form_version: 2,
+      new_field: '=SUM(1,2)',
       updates: false,
       age: 0,
     });
@@ -269,8 +298,9 @@ describe('forms API with real PostgreSQL', () => {
       .auth(reporter, { type: 'bearer' })
       .expect(200);
     expect(last.body.data[0]).toMatchObject({
-      form_version: 2,
-      new_field: '=SUM(1,2)',
+      submission_id: first.id,
+      form_version: 1,
+      new_field: null,
     });
     expect(last.body.nextCursor).toBeNull();
     const empty = await request(app.getHttpServer())
@@ -301,6 +331,7 @@ describe('forms API with real PostgreSQL', () => {
     expect(csv.text).toContain('"\'=SUM(1,2)"');
     expect(csv.text).toContain(first.id);
     expect(csv.text).toContain(second.id);
+    expect(csv.text.indexOf(second.id)).toBeLessThan(csv.text.indexOf(first.id));
     await request(app.getHttpServer())
       .get(`${path}/export`)
       .query({ startDate: '2020-02-30' })
@@ -343,6 +374,9 @@ describe('forms API with real PostgreSQL', () => {
     expect(lines).toHaveLength(1003);
     expect(new Set(lines.slice(1).map((line) => line.split(',')[0])).size).toBe(
       1002,
+    );
+    expect(lines.slice(1).map((line) => line.split(',')[0])).toEqual(
+      [...ids].sort().reverse().map((id) => `"${id}"`),
     );
     expect(csv.headers['content-disposition']).toContain(`${key}.csv`);
     expect(csv.headers['cache-control']).toBe('no-store');
