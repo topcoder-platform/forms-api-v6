@@ -153,7 +153,8 @@ filters. A cursor must belong to the selected form/revision and date range.
 The all-revision report unions field keys in first-seen order. `labels` contains
 the latest published label for each key; absent answers are null. Existing metadata
 columns (`submission_id`, `submitted_at`, `member_id`, `source_page`, `form_version`)
-remain present. Rows sort by timestamp then UUID; `total` counts matching rows
+remain present. All-revision rows and CSV exports sort newest first by timestamp,
+then descending UUID for stable ties across cursor pages; `total` counts matching rows
 before pagination. Decimal values remain strings and multi-select values remain
 arrays. A field reused with a different type retains each revision's original value.
 
