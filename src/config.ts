@@ -9,7 +9,6 @@ export interface AppConfig {
   origins: string[];
   authSecret: string;
   issuers: string[];
-  claimNamespace: string;
   throttleLimit: number;
   trustProxy: string[];
 }
@@ -50,7 +49,6 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     origins,
     authSecret,
     issuers,
-    claimNamespace: env.AUTH_CLAIM_NAMESPACE ?? 'https://topcoder.com/',
     throttleLimit: integerSetting(env.THROTTLE_LIMIT ?? '30', 1, 10000),
     trustProxy: (env.TRUST_PROXY_CIDRS ?? '')
       .split(',')
@@ -112,17 +110,14 @@ function readBusConfig(
     throw new Error('BUSAPI_URL must be an HTTP(S) API base ending in /v6.');
   return {
     BUSAPI_URL: url.toString().replace(/\/$/, ''),
-    AUTH0_URL: required(env, 'AUTH0_URL'),
-    AUTH0_AUDIENCE: required(env, 'AUTH0_AUDIENCE'),
-    AUTH0_CLIENT_ID: required(env, 'AUTH0_CLIENT_ID'),
-    AUTH0_CLIENT_SECRET: required(env, 'AUTH0_CLIENT_SECRET'),
+    AUTH0_URL: required(env, 'KEYCLOAK_TOKEN_URL'),
+    AUTH0_AUDIENCE: required(env, 'KEYCLOAK_AUDIENCE'),
+    AUTH0_CLIENT_ID: required(env, 'KEYCLOAK_CLIENT_ID'),
+    AUTH0_CLIENT_SECRET: required(env, 'KEYCLOAK_CLIENT_SECRET'),
     KAFKA_ERROR_TOPIC:
       env.KAFKA_ERROR_TOPIC?.trim() || 'common.error.reporting',
     ...(env.TOKEN_CACHE_TIME
       ? { TOKEN_CACHE_TIME: integerSetting(env.TOKEN_CACHE_TIME, 0, 86400000) }
-      : {}),
-    ...(env.AUTH0_PROXY_SERVER_URL?.trim()
-      ? { AUTH0_PROXY_SERVER_URL: env.AUTH0_PROXY_SERVER_URL.trim() }
       : {}),
   };
 }

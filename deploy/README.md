@@ -1,3 +1,5 @@
+> Migration branch: this code is isolated on `keycloak_m2M` and requires the explicit [Keycloak configuration](../docs/keycloak-m2m.md). Historical Auth0 deployment manifests and procedures below describe the existing deployment, not a ready-to-run rollout of this branch. Do not apply them to deploy this branch without replacing M2M credentials/trust settings.
+
 # ECS and CircleCI deployment
 
 `service.yaml` creates the `forms-api-v6` Fargate service on the existing
@@ -11,7 +13,7 @@ require database availability. OpenAPI UI is `/v6/forms/api-docs`, with JSON at
 `/v6/forms/api-docs-json`. The root forms list requires an administrator token;
 published schemas and anonymous submissions are public.
 
-Inbound JWT handling uses the same `tc-core-library-js` middleware as the other v6 APIs. Both legacy HS256 and Auth0 RS256 tokens are supported in one deployment. The Forms `VALID_ISSUERS` parameter must contain `https://auth.topcoder-dev.com/` for dev browser sign-in; the library resolves its JWKS and normalizes the dev namespaced roles/user ID. Existing `AUTH_MODE` and `AUTH_AUDIENCE` task settings are ignored by the new runtime. Updating the application image is sufficient when the issuer is already allowed; otherwise update the issuer parameter and roll the tasks as well. See [authentication configuration](../docs/operations.md#environment).
+Inbound JWT handling uses the same `tc-core-library-js` middleware as the other v6 APIs. Both legacy HS256 and Auth0 RS256 tokens are supported in one deployment. The Forms `VALID_ISSUERS` parameter must contain `https://auth.topcoder-dev.com/` for dev browser sign-in; the library resolves its JWKS and normalizes the dev namespaced roles/user ID. Existing `AUTH_MODE` and `AUTH_AUDIENCE` task settings are ignored by the new runtime. For this migration branch, the image and all explicit Keycloak trust/provider settings must be switched together after downstream services accept the issuer. See [authentication configuration](../docs/operations.md#environment).
 
 ## Initial environment setup
 

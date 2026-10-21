@@ -10,6 +10,7 @@ export default defineConfig({
     }),
   ],
   test: {
+    setupFiles: ['./test/keycloak.setup.ts'],
     include: ['test/**/*.spec.ts'],
     exclude: ['test/**/*.integration.spec.ts'],
   },

@@ -39,7 +39,7 @@ describe('forms API with real PostgreSQL', () => {
       ...testConfig(),
       busApi: {
         BUSAPI_URL: 'https://bus.test/v6',
-        AUTH0_URL: 'https://auth.test',
+        AUTH0_URL: 'https://keycloak.forms.test/m2m/token',
         AUTH0_AUDIENCE: 'https://api.test',
         AUTH0_CLIENT_ID: 'test-client',
         AUTH0_CLIENT_SECRET: 'test-secret',

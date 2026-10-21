@@ -54,9 +54,8 @@ beforeAll(async () => {
   const keys = generateKeyPairSync('rsa', { modulusLength: 2048 });
   privateKey = keys.privateKey;
   // Mock only the HTTPS key endpoint; the real shared middleware verifies every signature.
-  jwks = nock('https://auth.topcoder-dev.com')
+  jwks = nock('https://auth.topcoder-dev.com').persist()
     .get('/.well-known/jwks.json')
-    .once()
     .reply(200, {
       keys: [
         {
@@ -67,6 +66,9 @@ beforeAll(async () => {
         },
       ],
     });
+  nock('https://keycloak.forms.test').persist()
+    .get('/realms/test/protocol/openid-connect/certs')
+    .reply(200, {keys:[{...keys.publicKey.export({format:'jwk'}),kid,alg:'RS256',use:'sig'}]});
   const module = await Test.createTestingModule({
     controllers: [FormsController],
     providers: [
@@ -158,6 +160,8 @@ describe('reports directory with the shared Topcoder authenticator', () => {
 
   it('authorizes an RS256 machine by scopes rather than administrator roles', async () => {
     const machine = {
+      iss: process.env.KEYCLOAK_ISSUER,
+      aud: process.env.KEYCLOAK_AUDIENCE,
       sub: 'client@clients',
       gty: 'client-credentials',
       azp: 'client',

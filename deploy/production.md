@@ -1,3 +1,5 @@
+> Migration branch: this code is isolated on `keycloak_m2M` and requires the explicit [Keycloak configuration](../docs/keycloak-m2m.md). Historical Auth0 deployment manifests and procedures below describe the existing deployment, not a ready-to-run rollout of this branch. Do not apply them to deploy this branch without replacing M2M credentials/trust settings.
+
 # Production handoff — 2026-10-06
 
 Production infrastructure is provisioned in AWS account `409275337247`, region

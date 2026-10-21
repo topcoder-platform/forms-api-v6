@@ -8,4 +8,4 @@ allowBuilds:
 # The shared Bus API wrapper depends on Topcoder's Git-hosted core library.
 blockExoticSubdeps: false
 overrides:
-  tc-core-library-js: github:topcoder-platform/tc-core-library-js#323567bc50e433ae488b656f9f94e821ebaf3062
+  tc-core-library-js: https://codeload.github.com/topcoder-platform/tc-core-library-js/tar.gz/c262f4aca971904f308085bdeaaed35cdf3cfa7d

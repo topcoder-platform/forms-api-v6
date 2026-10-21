@@ -17,10 +17,10 @@ const baseEnv = {
 };
 const busEnv = {
   BUSAPI_URL: 'https://api.topcoder-dev.com/v6/',
-  AUTH0_URL: 'https://auth.test',
-  AUTH0_AUDIENCE: 'https://api.test',
-  AUTH0_CLIENT_ID: 'client',
-  AUTH0_CLIENT_SECRET: 'secret',
+  KEYCLOAK_TOKEN_URL: 'https://auth.test',
+  KEYCLOAK_AUDIENCE: 'https://api.test',
+  KEYCLOAK_CLIENT_ID: 'client',
+  KEYCLOAK_CLIENT_SECRET: 'secret',
 };
 const payload = {
   submissionId: 'c1ab5d27-722a-431f-a811-46737109de1f',
@@ -43,14 +43,15 @@ describe('outbound Bus API integration', () => {
       ...baseEnv,
       ...busEnv,
       TOKEN_CACHE_TIME: '60000',
-      AUTH0_PROXY_SERVER_URL: 'https://proxy.test',
     });
     const bus = new EventBusService(config);
     expect(createClient).toHaveBeenCalledWith({
-      ...busEnv,
+      AUTH0_URL: busEnv.KEYCLOAK_TOKEN_URL,
+      AUTH0_AUDIENCE: busEnv.KEYCLOAK_AUDIENCE,
+      AUTH0_CLIENT_ID: busEnv.KEYCLOAK_CLIENT_ID,
+      AUTH0_CLIENT_SECRET: busEnv.KEYCLOAK_CLIENT_SECRET,
       BUSAPI_URL: 'https://api.topcoder-dev.com/v6',
       TOKEN_CACHE_TIME: 60000,
-      AUTH0_PROXY_SERVER_URL: 'https://proxy.test',
       KAFKA_ERROR_TOPIC: 'common.error.reporting',
     });
     await bus.publishSubmission(payload);
@@ -94,10 +95,10 @@ describe('outbound Bus API integration', () => {
   });
 
   it.each([
-    'AUTH0_URL',
-    'AUTH0_AUDIENCE',
-    'AUTH0_CLIENT_ID',
-    'AUTH0_CLIENT_SECRET',
+    'KEYCLOAK_TOKEN_URL',
+    'KEYCLOAK_AUDIENCE',
+    'KEYCLOAK_CLIENT_ID',
+    'KEYCLOAK_CLIENT_SECRET',
   ])('requires %s when bus is enabled', (key) => {
     expect(() => readConfig({ ...baseEnv, ...busEnv, [key]: '' })).toThrow(key);
   });

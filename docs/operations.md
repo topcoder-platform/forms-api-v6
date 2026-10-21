@@ -8,14 +8,13 @@
 | `PORT`                 | HTTP listen port, default 3000; `.env.example` uses 3006 on the host.                                                       |
 | `AUTH_SECRET`          | Required shared Topcoder secret, at least 32 characters; used for HS256 tokens.                                                               |
 | `VALID_ISSUERS`        | Required exact trusted JWT issuers, as a JSON string array or comma-separated list. RS256 JWKS URLs derive from these issuers.                       |
-| `AUTH_CLAIM_NAMESPACE` | Actor fallback prefix, default `https://topcoder.com/`; the shared middleware normalizes Topcoder namespaces first.                                                    |
 | `CORS_ORIGINS`         | Comma-separated exact HTTP(S) origins, no trailing slash/wildcard. Empty means no browser origins are allowed.              |
 | `THROTTLE_LIMIT`       | Requests per minute per client IP and handler, per replica; default 30. Health probes are exempt.                           |
 | `TRUST_PROXY_CIDRS`    | Explicit trusted ingress proxy addresses/CIDRs. Empty by default.                                                           |
 
 Inbound authentication uses the pinned `tc-core-library-js` authenticator for both HS256 and RS256. For the dev reports application, `VALID_ISSUERS` must include `https://auth.topcoder-dev.com/` exactly (including the trailing slash); its public signing keys are fetched from `https://auth.topcoder-dev.com/.well-known/jwks.json`. Keep the legacy API issuer and other intended trusted issuers in the same list. The runtime needs outbound HTTPS access to those JWKS endpoints.
 
-`AUTH_MODE`, `AUTH_AUDIENCE`, and `JWKS_URL` are obsolete and ignored, so an existing ECS task definition with `AUTH_MODE=hs256` does not block RS256 after deploying the new image. The updated template removes these obsolete mappings. The library does not enforce a Forms-specific audience; the Topcoder browser client ID is accepted through the same trusted-issuer policy as other v6 services. No browser token, client secret, or private signing key needs to be copied into Forms configuration.
+The Keycloak migration branch requires `M2M_PROVIDER=keycloak`, `KEYCLOAK_ISSUER`, `KEYCLOAK_AUDIENCE` and `KEYCLOAK_TOKEN_URL`. Member audience policy requires `AUTH_USER_AUDIENCES` (JSON array) or explicit `ALLOW_LEGACY_USER_AUDIENCE=true`. This exception never applies to machines. `AUTH_MODE`, `AUTH_AUDIENCE`, `JWKS_URL` and `AUTH_CLAIM_NAMESPACE` do not configure the shared validator. See [the rollout guide](keycloak-m2m.md); existing application services remain on their previous branches until rollout.
 
 All Forms tables, enums, functions, migration history, and reporting views live in the `forms` schema. The database can be shared with other services. Models and raw SQL explicitly qualify this schema; migrations do not change other schemas. PostgreSQL TLS options belong in the connection URL/driver configuration. The service does not disable certificate verification.
 
@@ -33,14 +32,12 @@ Ordinary submissions need no Bus API configuration. To accept `kafka=true` submi
 | Variable | Meaning |
 | --- | --- |
 | `BUSAPI_URL` | HTTP(S) API base ending in `/v6`, e.g. `https://api.topcoder-dev.com/v6`. The shared wrapper appends `/bus/events`. |
-| `AUTH0_URL` | Auth0 token endpoint used by the shared Topcoder M2M client. |
-| `AUTH0_AUDIENCE` | Outbound M2M audience used to acquire a Bus API token. |
-| `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET` | Service credentials authorized to publish Bus API events. Required when `BUSAPI_URL` is set. |
-| `TOKEN_CACHE_TIME` | Optional M2M token cache duration in milliseconds, 0–86400000; otherwise uses the wrapper default. |
-| `AUTH0_PROXY_SERVER_URL` | Optional Auth0 proxy supported by the shared wrapper. |
+| `KEYCLOAK_TOKEN_URL` | Managed Keycloak token endpoint used by the shared Topcoder M2M client. |
+| `KEYCLOAK_AUDIENCE` | Outbound M2M audience used to acquire a Bus API token. |
+| `KEYCLOAK_CLIENT_ID`, `KEYCLOAK_CLIENT_SECRET` | Service credentials authorized to publish Bus API events. Required when `BUSAPI_URL` is set. |
 | `KAFKA_ERROR_TOPIC` | Wrapper error-topic setting, default `common.error.reporting`; submission topic is always `form.submitted`. |
 
-For ECS, expose the five required Bus API/Auth0 settings to the runtime container through its task-definition secrets (the existing template only maps inbound authentication and database settings). Store them under the service parameter prefix so its existing SSM read permissions apply; never put credentials in the template.
+For ECS, expose the required Bus API/Keycloak settings and explicit issuer/provider settings to the runtime container through its task-definition secrets through the existing appvar injection. Store them under the service parameter prefix so its existing SSM read permissions apply; never put credentials in the template.
 
 Apply migration `20260928010000_submission_events` before deploying this version. It adds the `forms.SubmissionEvent` delivery table; it does not change existing submissions or reporting views. The service role needs SELECT/INSERT/UPDATE on this table. Ensure `form.submitted` is available through Bus API and downstream consumers deduplicate on the payload's `submissionId`.
 
@@ -113,3 +110,5 @@ The development watcher uses ts-node's `experimentalResolver` to map Prisma's ge
 For a full packaged smoke test, start Compose, check readiness, and run `pnpm demo`. Query `forms.event_interest_v1` directly to inspect the same submission used by the JSON report.
 
 Host Payload/website rollout requires their normal integration/configuration changes and checks, described in [the integration guide](payload-integration.md). This service's tests do not claim a deployed CMS or public website has been changed.
+
+The wrapper retains legacy `AUTH0_*` option names internally, supplied only with Keycloak values. The pinned core owns expiry-aware caching; `TOKEN_CACHE_TIME` does not override token lifetime.

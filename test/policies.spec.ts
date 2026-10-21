@@ -112,32 +112,11 @@ describe('definition and deployment policies', () => {
     expect(csvCell(input).startsWith('"\'')).toBe(true);
   });
 
-  it('uses the explicit namespace and separates machines from member identities', () => {
-    const actor = normalizeActor(
-      {
-        sub: 'auth0|person',
-        'https://topcoder.com/userId': 42,
-        'https://topcoder.com/roles': ['Member'],
-        'https://untrusted.example/roles': ['Administrator'],
-      },
-      'https://topcoder.com/',
-    );
-    expect(actor).toMatchObject({
-      memberId: '42',
-      machine: false,
-      roles: ['member'],
-    });
-    expect(
-      normalizeActor(
-        {
-          sub: 'client@clients',
-          userId: 'forged',
-          roles: ['Administrator'],
-          gty: 'client-credentials',
-        },
-        'https://topcoder.com/',
-      ),
-    ).toMatchObject({ memberId: undefined, machine: true });
+  it('adapts verified identities without reclassifying claims or granting member scopes', () => {
+    expect(normalizeActor({kind:'user',isMachine:false,sub:'auth0|person',userId:42,roles:['Member'],scopes:['manage:forms']}))
+      .toMatchObject({memberId:'42',machine:false,roles:['member'],scopes:[]});
+    expect(normalizeActor({kind:'service',isMachine:true,sub:'service-account',roles:[],scopes:['manage:forms']}))
+      .toMatchObject({memberId:undefined,machine:true,roles:[],scopes:['manage:forms']});
   });
 
   it('requires signed-token settings and exact CORS origins, defaulting to untrusted proxy headers', () => {

@@ -23,11 +23,9 @@ Keys are lowercase snake_case, begin with a letter, and contain at most 40 chara
 
 ## Authentication
 
-Authorization is deny-by-default. Public routes may omit a token; supplying an invalid token still returns 401. Forms uses `tc-core-library-js`'s `middleware.jwtAuthenticator`, the same entry point used by Reports, Engagements, Support, and Bus API. It verifies HS256 tokens using `AUTH_SECRET` and RS256 tokens using the trusted issuer's `/.well-known/jwks.json`, with cached signing keys. The issuer must be an exact member of `VALID_ISSUERS`. Forms rejects other algorithms before invoking the shared verifier, requires `exp` and `iat`, and preserves the generic 401 response for authentication failures.
+Authorization is deny-by-default. Public routes may omit a token; invalid supplied tokens return 401. `tc-core-library-js`'s `auth.createValidator` owns signature, exact issuer/audience, lifetime and identity classification. This branch requires explicit Keycloak settings. Member HS256/RS256 sessions remain supported; `AUTH_USER_AUDIENCES` or explicit `ALLOW_LEGACY_USER_AUDIENCE=true` controls member audience policy. Machine audience checks are always mandatory. See [migration settings](keycloak-m2m.md).
 
-Audience handling follows the shared Topcoder library: there is no Forms-specific audience check. This permits both legacy member JWTs without `aud` and Auth0 browser tokens whose `aud` is the Topcoder application client ID. `AUTH_MODE`, `AUTH_AUDIENCE`, and `JWKS_URL` no longer select or restrict inbound authentication. Trust is established by signature, issuer and token lifetime; Forms still enforces the human-role/M2M-scope rules below.
-
-The shared middleware normalizes Topcoder namespaced roles and user IDs, including `https://topcoder-dev.com/roles` and `https://topcoder-dev.com/userId`, before Forms builds its actor. Roles are matched case-insensitively. The actor adapter also supports direct claims and an `AUTH_CLAIM_NAMESPACE` fallback, default `https://topcoder.com/`. Subject is retained for editor audit; legacy human tokens without `sub` use their verified numeric `userId`. Member forms require an actual `userId`; an Auth0 subject is never silently substituted for member identity. Standard M2M tokens include `azp`, `sub`, `gty=client-credentials`, and space-separated `scope` claims.
+Only core-normalized roles, member IDs and scopes reach the Forms actor. Known Topcoder namespaces are supported; arbitrary claim suffixes and `AUTH_CLAIM_NAMESPACE` are not. Roles are matched case-insensitively. Legacy member tokens without `sub` use their verified numeric member ID for audit. A subject never substitutes for a missing member ID. Service identities carry no member roles or IDs; exact machine scopes are checked with `auth.hasScopes`.
 
 | Caller    | Manage access                                 | Report access                            | Submit access                                           |
 | --------- | --------------------------------------------- | ---------------------------------------- | ------------------------------------------------------- |
@@ -35,7 +33,7 @@ The shared middleware normalizes Topcoder namespaced roles and user IDs, includi
 | Machine   | `manage:forms` scope                          | `read:forms-submissions` scope           | Rejected                                                |
 | Anonymous | Rejected                                      | Rejected                                 | Only `ANONYMOUS` forms                                  |
 
-Machine tokens are recognized by `gty=client-credentials`, `isMachine=true`, a `sub` ending in `@clients`, or scopes with no roles, matching the neighboring APIs' role/scope distinction. Machines cannot gain human permissions through role claims; human tokens do not gain management/report access solely through scopes.
+Machine identity is determined only by the shared verified `kind=service` principal. Machines cannot gain human permissions through role claims; human tokens do not gain management/report access solely through scopes.
 
 ## Definition and submission
 

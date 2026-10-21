@@ -1,4 +1,5 @@
-import { randomUUID } from 'node:crypto';
+import { randomUUID, generateKeyPairSync, type KeyObject } from 'node:crypto';
+import nock from 'nock';
 import { readConfig } from '../src/config';
 
 export const testSecret = 'forms-integration-test-secret-only-000000000';
@@ -21,14 +22,29 @@ export function testConfig() {
   });
 }
 
+let machineKey: KeyObject | undefined;
+
 /**
- * Signs a local test token using the same JWT verification path as production.
+ * Signs local member HMAC or service RSA fixtures using the shared production verification path.
  * @param claims Explicit user or M2M claims. @returns Signed bearer token string.
  * @throws JOSE errors if signing fails.
  */
 export async function token(claims: Record<string, unknown>) {
   const { SignJWT } = await import('jose');
-  return new SignJWT(claims)
+  if (claims.gty === 'client-credentials') {
+    if (!machineKey) {
+      const keys = generateKeyPairSync('rsa', {modulusLength:2048});
+      machineKey = keys.privateKey;
+      nock('https://keycloak.forms.test').persist()
+        .get('/realms/test/protocol/openid-connect/certs')
+        .reply(200,{keys:[{...keys.publicKey.export({format:'jwk'}),kid:'integration',alg:'RS256',use:'sig'}]});
+    }
+    return new SignJWT(claims).setProtectedHeader({alg:'RS256',kid:'integration'})
+      .setSubject('service-account').setIssuer('https://keycloak.forms.test/realms/test')
+      .setAudience('forms-api').setIssuedAt().setExpirationTime('5m').sign(machineKey);
+  }
+  const userClaims = 'https://topcoder.com/userId' in claims ? claims : {userId:42,...claims};
+  return new SignJWT(userClaims)
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject('test-user')
     .setIssuer('https://forms.test')

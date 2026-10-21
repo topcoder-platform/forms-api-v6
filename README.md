@@ -106,3 +106,7 @@ Coverage includes actual PostgreSQL writes, all field types, SQL views, CSV outp
 Forms portal endpoints, inclusive UTC date filtering, and full CSV exports are
 specified in [docs/api.md](docs/api.md). The dev and production `/lets-talk` migration,
 Kafka contract, seed command, and rollout order are in [docs/lets-talk.md](docs/lets-talk.md).
+
+## Keycloak migration branch
+
+[Keycloak configuration and rollout](docs/keycloak-m2m.md) are required for this isolated branch. Existing DEV deployments remain unchanged.

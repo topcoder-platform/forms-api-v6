@@ -28,8 +28,8 @@ existing Bus API integration. Consumers must deduplicate by `submissionId`.
 ## Rollout after review
 
 1. Deploy this API revision and the existing `SubmissionEvent` migration. Configure
-   outbound `BUSAPI_URL`, `AUTH0_URL`, `AUTH0_AUDIENCE`, `AUTH0_CLIENT_ID`,
-   `AUTH0_CLIENT_SECRET`, and `KAFKA_ERROR_TOPIC` as described in operations.md.
+   outbound `BUSAPI_URL`, `KEYCLOAK_TOKEN_URL`, `KEYCLOAK_AUDIENCE`, `KEYCLOAK_CLIENT_ID`,
+   `KEYCLOAK_CLIENT_SECRET`, and `KAFKA_ERROR_TOPIC` as described in operations.md.
 2. Ensure `CORS_ORIGINS` / CloudFormation `CorsOrigins` includes the exact website
    and reports origins (`https://www.topcoder-dev.com`,
    `https://reports.topcoder-dev.com`, `https://platform-ui.topcoder-dev.com` for the

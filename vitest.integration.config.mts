@@ -10,6 +10,7 @@ export default defineConfig({
     }),
   ],
   test: {
+    setupFiles: ['./test/keycloak.setup.ts'],
     include: ['test/**/*.integration.spec.ts'],
     testTimeout: 30000,
     hookTimeout: 30000,
