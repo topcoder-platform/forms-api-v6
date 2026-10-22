@@ -331,7 +331,9 @@ describe('forms API with real PostgreSQL', () => {
     expect(csv.text).toContain('"\'=SUM(1,2)"');
     expect(csv.text).toContain(first.id);
     expect(csv.text).toContain(second.id);
-    expect(csv.text.indexOf(second.id)).toBeLessThan(csv.text.indexOf(first.id));
+    expect(csv.text.indexOf(second.id)).toBeLessThan(
+      csv.text.indexOf(first.id),
+    );
     await request(app.getHttpServer())
       .get(`${path}/export`)
       .query({ startDate: '2020-02-30' })
@@ -342,6 +344,197 @@ describe('forms API with real PostgreSQL', () => {
       .query({ limit: 1 })
       .auth(reporter, { type: 'bearer' })
       .expect(400);
+  });
+
+  it("seeds the Let's talk classification flows disabled and leaves the sales email unchanged", async () => {
+    const flows = await db.processorFlow.findMany({
+      where: { formKey: 'lets_talk' },
+      orderBy: { id: 'asc' },
+    });
+    const rules = Object.fromEntries(
+      flows.map((flow) => [flow.id, flow.rules]),
+    );
+    expect(rules).toEqual({
+      'lets-talk-classify': { all: [] },
+      'lets-talk-community-general-reply': {
+        all: [],
+        classification: ['COMMUNITY_GENERAL'],
+      },
+      'lets-talk-community-opportunity-reply': {
+        all: [],
+        classification: ['COMMUNITY_OPPORTUNITY'],
+      },
+      'lets-talk-community-skills-reply': {
+        all: [],
+        classification: ['COMMUNITY_SKILLS'],
+      },
+      'lets-talk-sales-email': { all: [] },
+      'lets-talk-sales-reply': { all: [], classification: ['SALES_LEAD'] },
+      'lets-talk-support-forward': {
+        all: [],
+        classification: ['COMMUNITY_SUPPORT'],
+      },
+      'lets-talk-wipro-queries-reply': {
+        all: [],
+        classification: ['WIPRO_QUERIES'],
+      },
+    });
+    expect(
+      flows
+        .filter((flow) => flow.id !== 'lets-talk-sales-email')
+        .every((flow) => !flow.enabled),
+    ).toBe(true);
+    expect(flows.find((flow) => flow.id === 'lets-talk-classify')?.action).toBe(
+      'ai-classify',
+    );
+  });
+
+  it('reports AI classification columns and filters by label only for forms with a classify flow', async () => {
+    const key = await create({
+      ...definition(),
+      fields: definition().fields.map((field) => ({
+        ...field,
+        required: false,
+      })),
+    });
+    const version = await db.formVersion.findFirstOrThrow({
+      where: { form: { key } },
+    });
+    const reportPath = `/v6/forms/${key}/submissions`;
+    const columnsOf = async () =>
+      (
+        await request(app.getHttpServer())
+          .get(reportPath)
+          .auth(reporter, { type: 'bearer' })
+          .expect(200)
+      ).body.columns as string[];
+    // No classify flow yet: the report is unchanged.
+    expect(await columnsOf()).not.toContain('classification');
+
+    await db.processorFlow.create({
+      data: { id: `${key}-classify`, formKey: key, action: 'ai-classify' },
+    });
+    const [lead, junk, pending, never] = Array.from({ length: 4 }, () =>
+      randomUUID(),
+    );
+    await db.submission.createMany({
+      data: [lead, junk, pending, never].map((id, index) => ({
+        id,
+        versionId: version.id,
+        idempotencyKey: randomUUID(),
+        requestHash: 'a'.repeat(64),
+        createdAt: new Date(Date.UTC(2020, 9, 1 + index)),
+      })),
+    });
+    const runId = randomUUID();
+    await db.submissionClassification.createMany({
+      data: [
+        {
+          submissionId: lead,
+          label: 'SALES_LEAD',
+          status: 'CLASSIFIED',
+          confidence: '0.9100',
+          needsReview: false,
+          workflowId: 'lets-talk-classification',
+          workflowRunId: runId,
+          classifiedAt: new Date(),
+        },
+        {
+          submissionId: junk,
+          label: 'JUNK',
+          status: 'CLASSIFIED',
+          confidence: '0.6',
+          needsReview: true,
+          workflowId: 'lets-talk-classification',
+          classifiedAt: new Date(),
+        },
+        { submissionId: pending, workflowId: 'lets-talk-classification' },
+      ],
+    });
+
+    const report = await request(app.getHttpServer())
+      .get(reportPath)
+      .auth(reporter, { type: 'bearer' })
+      .expect(200);
+    expect(report.body.columns.slice(-5)).toEqual([
+      'classification',
+      'classification_status',
+      'classification_confidence',
+      'classification_needs_review',
+      'classification_run_id',
+    ]);
+    expect(report.body.labels.classification).toBe('Classification');
+    const byId = Object.fromEntries(
+      report.body.data.map((row: Record<string, unknown>) => [
+        row.submission_id,
+        row,
+      ]),
+    );
+    expect(byId[lead]).toMatchObject({
+      classification: 'SALES_LEAD',
+      classification_status: 'CLASSIFIED',
+      classification_confidence: '0.91',
+      classification_needs_review: false,
+      classification_run_id: runId,
+    });
+    expect(byId[junk]).toMatchObject({
+      classification: 'JUNK',
+      classification_needs_review: true,
+    });
+    expect(byId[pending]).toMatchObject({
+      classification: 'UNKNOWN',
+      classification_status: 'PENDING',
+    });
+    // Submitted before classification existed: no row at all.
+    expect(byId[never]).toMatchObject({
+      classification: 'UNKNOWN',
+      classification_status: null,
+      classification_run_id: null,
+    });
+
+    const filtered = async (classification: string) =>
+      (
+        await request(app.getHttpServer())
+          .get(reportPath)
+          .query({ classification })
+          .auth(reporter, { type: 'bearer' })
+          .expect(200)
+      ).body;
+    expect(
+      (await filtered('SALES_LEAD')).data.map(
+        (r: { submission_id: string }) => r.submission_id,
+      ),
+    ).toEqual([lead]);
+    const unknown = await filtered('UNKNOWN');
+    expect(unknown.total).toBe(2);
+    expect(
+      unknown.data.map((r: { submission_id: string }) => r.submission_id),
+    ).toEqual([never, pending]);
+    expect((await filtered('COMMUNITY_SKILLS')).total).toBe(0);
+    await request(app.getHttpServer())
+      .get(reportPath)
+      .query({ classification: 'sales_lead' })
+      .auth(reporter, { type: 'bearer' })
+      .expect(400);
+
+    const csv = await request(app.getHttpServer())
+      .get(`${reportPath}/export`)
+      .query({ classification: 'SALES_LEAD' })
+      .auth(reporter, { type: 'bearer' })
+      .expect(200);
+    const lines = csv.text.trim().split('\r\n');
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain('"classification","classification_status"');
+    expect(lines[1]).toContain('"SALES_LEAD"');
+    expect(lines[1]).toContain(`"${runId}"`);
+
+    // Deleting a submission erases its classification.
+    await db.submission.delete({ where: { id: lead } });
+    expect(
+      await db.submissionClassification.count({
+        where: { submissionId: lead },
+      }),
+    ).toBe(0);
   });
 
   it('exports more than one thousand rows with one header and no table-page truncation', async () => {
@@ -376,7 +569,10 @@ describe('forms API with real PostgreSQL', () => {
       1002,
     );
     expect(lines.slice(1).map((line) => line.split(',')[0])).toEqual(
-      [...ids].sort().reverse().map((id) => `"${id}"`),
+      [...ids]
+        .sort()
+        .reverse()
+        .map((id) => `"${id}"`),
     );
     expect(csv.headers['content-disposition']).toContain(`${key}.csv`);
     expect(csv.headers['cache-control']).toBe('no-store');
