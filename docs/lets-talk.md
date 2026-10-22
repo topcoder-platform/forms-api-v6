@@ -80,3 +80,13 @@ The website maintains its analytics adapter around the same rendering contract.
    `form.submitted` and `external.action.email`, and verify the received email.
    Processor `deliveredAt` means Bus API acceptance; verify provider/inbox delivery
    separately. No historical HubSpot data is imported.
+
+## AI classification (forms-processor-v6 ADR 0001)
+
+Migration `20261022010000_lets_talk_classification` adds
+`forms."SubmissionClassification"` and seven disabled processor flows: one classifies
+each submission with the tc-ai-api `lets-talk-classification` workflow, and the
+others reply or forward by label. It does not change `lets-talk-sales-email`. Once the
+processor enables classification, the reports UI and CSV show a `classification`
+column (`UNKNOWN` until classified) and accept a `classification` filter. The rollout
+order and SQL are in forms-processor-v6 `deploy/README.md`.

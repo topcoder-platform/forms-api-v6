@@ -145,6 +145,15 @@ They do not grant form management privileges.
 | `GET /forms/:key/submissions?limit=25&after=uuid&startDate=2026-09-01&endDate=2026-09-30` | `{ form, columns, labels, data, total, nextCursor }` across all published/retired revisions. |
 | `GET /forms/:key/submissions/export?startDate=2026-09-01&endDate=2026-09-30` | Complete streaming CSV with one header, independently of the table page. Omit both dates for all data. |
 
+**AI classification.** For a form with an `ai-classify` processor flow (Let's talk),
+both routes append `classification`, `classification_status`,
+`classification_confidence`, `classification_needs_review` and
+`classification_run_id`, after the answer columns. A submission never classified
+reports `classification: "UNKNOWN"` with null details. Both accept an optional
+`classification` label filter (`UPPER_SNAKE`, e.g. `?classification=SALES_LEAD`);
+`UNKNOWN` also matches unclassified submissions. The filter is ignored for forms
+without classification. See forms-processor-v6 ADR 0001.
+
 Dates are optional **inclusive UTC calendar dates** in `YYYY-MM-DD`; an end date
 includes timestamps through 23:59:59.999. Invalid calendar dates and reversed
 ranges return 400. Existing version-specific JSON/CSV endpoints accept these same
@@ -158,7 +167,7 @@ then descending UUID for stable ties across cursor pages; `total` counts matchin
 before pagination. Decimal values remain strings and multi-select values remain
 arrays. A field reused with a different type retains each revision's original value.
 
-The complete export accepts only date filters, not `limit` or `after`. It fetches
+The complete export accepts only date and classification filters, not `limit` or `after`. It fetches
 1,000 rows per batch, applies backpressure, stops when the client disconnects, and
 uses the established CSV escaping/formula protection. Columns and an upper
 submission timestamp are captured at export start. This is not a repeatable-read

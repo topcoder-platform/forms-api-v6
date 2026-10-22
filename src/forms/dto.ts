@@ -22,6 +22,8 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { FieldType, FormAccess } from '../generated/prisma/enums';
 
 export const KEY_PATTERN = /^[a-z][a-z0-9_]{0,39}$/;
+/** AI classification labels (forms."SubmissionClassification".label). */
+export const CLASSIFICATION_LABEL_PATTERN = /^[A-Z][A-Z0-9_]{0,39}$/;
 export const DECIMAL_PATTERN = /^-?(?:0|[1-9]\d{0,13})(?:\.\d{1,6})?$/;
 export const RESERVED_KEYS = new Set([
   'submission_id',
@@ -172,6 +174,15 @@ export class ReportDatesDto {
   @IsOptional()
   @Matches(/^\d{4}-\d{2}-\d{2}$/)
   endDate?: string;
+
+  @ApiPropertyOptional({
+    example: 'SALES_LEAD',
+    description:
+      'Only submissions with this AI classification label. UNKNOWN matches unclassified submissions too. Ignored for forms without AI classification.',
+  })
+  @IsOptional()
+  @Matches(CLASSIFICATION_LABEL_PATTERN)
+  classification?: string;
 }
 
 /** Defines bounded keyset pagination and inclusive UTC dates for private reporting. */
