@@ -109,4 +109,4 @@ Kafka contract, seed command, and rollout order are in [docs/lets-talk.md](docs/
 
 ## Keycloak migration branch
 
-[Keycloak configuration and rollout](docs/keycloak-m2m.md) are required for this isolated branch. Existing DEV deployments remain unchanged.
+See [Keycloak configuration and rollout](docs/keycloak-m2m.md). `USE_KEYCLOAK=true` selects Keycloak M2M; unset or `false` keeps the Auth0 settings, so rollback is `USE_KEYCLOAK=false` plus a new deployment. Existing DEV deployments remain unchanged.

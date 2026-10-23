@@ -1,4 +1,4 @@
-> Migration branch: this code is isolated on `keycloak_m2M` and requires the explicit [Keycloak configuration](../docs/keycloak-m2m.md). Historical Auth0 deployment manifests and procedures below describe the existing deployment, not a ready-to-run rollout of this branch. Do not apply them to deploy this branch without replacing M2M credentials/trust settings.
+> Migration branch: this code is isolated on `keycloak_m2M`. `USE_KEYCLOAK=true` requires the explicit [Keycloak configuration](../docs/keycloak-m2m.md); with `USE_KEYCLOAK` unset or `false` it uses the Auth0 settings described below. Historical Auth0 deployment manifests and procedures below describe the existing deployment; they do not list the Keycloak settings.
 
 # ECS and CircleCI deployment
 
@@ -13,7 +13,7 @@ require database availability. OpenAPI UI is `/v6/forms/api-docs`, with JSON at
 `/v6/forms/api-docs-json`. The root forms list requires an administrator token;
 published schemas and anonymous submissions are public.
 
-Inbound JWT handling uses the same `tc-core-library-js` middleware as the other v6 APIs. Both legacy HS256 and Auth0 RS256 tokens are supported in one deployment. The Forms `VALID_ISSUERS` parameter must contain `https://auth.topcoder-dev.com/` for dev browser sign-in; the library resolves its JWKS and normalizes the dev namespaced roles/user ID. Existing `AUTH_MODE` and `AUTH_AUDIENCE` task settings are ignored by the new runtime. For this migration branch, the image and all explicit Keycloak trust/provider settings must be switched together after downstream services accept the issuer. See [authentication configuration](../docs/operations.md#environment).
+Inbound JWT handling uses the same `tc-core-library-js` middleware as the other v6 APIs. Both legacy HS256 and Auth0 RS256 tokens are supported in one deployment. The Forms `VALID_ISSUERS` parameter must contain `https://auth.topcoder-dev.com/` for dev browser sign-in; the library resolves its JWKS and normalizes the dev namespaced roles/user ID. Existing `AUTH_MODE` and `AUTH_AUDIENCE` task settings are ignored by the new runtime. For this migration branch, set `USE_KEYCLOAK=true` together with the Keycloak trust settings only after downstream services accept the issuer; `USE_KEYCLOAK=false` plus a forced new deployment rolls back to Auth0. See [authentication configuration](../docs/operations.md#environment).
 
 ## Initial environment setup
 
@@ -127,7 +127,9 @@ New releases pick up parameter additions and removals. After changing only an
 existing parameter's value, force a new ECS deployment to refresh running tasks.
 
 For Kafka delivery, create `BUSAPI_URL=https://api.topcoder-dev.com/v6` under the
-Forms dev appvar path. The Forms `AUTH0_CLIENT_ID` / `AUTH0_CLIENT_SECRET` combine
-with shared `AUTH0_URL`, `AUTH0_AUDIENCE`, and optional `AUTH0_PROXY_SERVER_URL` /
-`TOKEN_CACHE_TIME`. Production needs its corresponding URL and authorized credentials.
+Forms dev appvar path. With `USE_KEYCLOAK` unset or `false`, the Forms
+`AUTH0_CLIENT_ID` / `AUTH0_CLIENT_SECRET` combine with shared `AUTH0_URL`, `AUTH0_AUDIENCE`,
+and optional `AUTH0_PROXY_SERVER_URL` / `TOKEN_CACHE_TIME`. With `USE_KEYCLOAK=true`
+(`/config/common/global-appvar/USE_KEYCLOAK`), the Forms `KEYCLOAK_CLIENT_ID` /
+`KEYCLOAK_CLIENT_SECRET` combine with shared `KEYCLOAK_TOKEN_URL` and `KEYCLOAK_AUDIENCE`. Production needs its corresponding URL and authorized credentials.
 Do not decrypt or copy shared values into the service path to perform injection.

@@ -17,10 +17,19 @@ const baseEnv = {
 };
 const busEnv = {
   BUSAPI_URL: 'https://api.topcoder-dev.com/v6/',
+  USE_KEYCLOAK: 'true',
   KEYCLOAK_TOKEN_URL: 'https://auth.test',
   KEYCLOAK_AUDIENCE: 'https://api.test',
   KEYCLOAK_CLIENT_ID: 'client',
   KEYCLOAK_CLIENT_SECRET: 'secret',
+};
+/** Pre-migration Auth0 Bus settings, used when USE_KEYCLOAK is not true. */
+const auth0Env = {
+  BUSAPI_URL: 'https://api.topcoder-dev.com/v6/',
+  AUTH0_URL: 'https://auth0.test/oauth/token',
+  AUTH0_AUDIENCE: 'https://m2m.test',
+  AUTH0_CLIENT_ID: 'auth0-client',
+  AUTH0_CLIENT_SECRET: 'auth0-secret',
 };
 const payload = {
   submissionId: 'c1ab5d27-722a-431f-a811-46737109de1f',
@@ -101,5 +110,73 @@ describe('outbound Bus API integration', () => {
     'KEYCLOAK_CLIENT_SECRET',
   ])('requires %s when bus is enabled', (key) => {
     expect(() => readConfig({ ...baseEnv, ...busEnv, [key]: '' })).toThrow(key);
+  });
+
+  it('ignores the Auth0 settings when USE_KEYCLOAK=true', () => {
+    const config = readConfig({
+      ...baseEnv,
+      ...busEnv,
+      AUTH0_PROXY_SERVER_URL: 'https://proxy.test',
+    });
+    expect(config.busApi).not.toHaveProperty('AUTH0_PROXY_SERVER_URL');
+    expect(config.busApi?.AUTH0_CLIENT_ID).toBe(busEnv.KEYCLOAK_CLIENT_ID);
+  });
+});
+
+describe('outbound Bus API integration with USE_KEYCLOAK=false (Auth0)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('configures the wrapper with the pre-migration Auth0 settings', () => {
+    new EventBusService(
+      readConfig({
+        ...baseEnv,
+        ...busEnv,
+        ...auth0Env,
+        USE_KEYCLOAK: 'false',
+        TOKEN_CACHE_TIME: '60000',
+        AUTH0_PROXY_SERVER_URL: ' https://proxy.test ',
+      }),
+    );
+    expect(createClient).toHaveBeenCalledWith({
+      AUTH0_URL: auth0Env.AUTH0_URL,
+      AUTH0_AUDIENCE: auth0Env.AUTH0_AUDIENCE,
+      AUTH0_CLIENT_ID: auth0Env.AUTH0_CLIENT_ID,
+      AUTH0_CLIENT_SECRET: auth0Env.AUTH0_CLIENT_SECRET,
+      BUSAPI_URL: 'https://api.topcoder-dev.com/v6',
+      TOKEN_CACHE_TIME: 60000,
+      AUTH0_PROXY_SERVER_URL: 'https://proxy.test',
+      KAFKA_ERROR_TOPIC: 'common.error.reporting',
+    });
+  });
+
+  it('uses Auth0 when USE_KEYCLOAK is unset and needs no Keycloak settings', () => {
+    const config = readConfig({ ...baseEnv, ...auth0Env });
+    expect(config.busApi).toEqual({
+      AUTH0_URL: auth0Env.AUTH0_URL,
+      AUTH0_AUDIENCE: auth0Env.AUTH0_AUDIENCE,
+      AUTH0_CLIENT_ID: auth0Env.AUTH0_CLIENT_ID,
+      AUTH0_CLIENT_SECRET: auth0Env.AUTH0_CLIENT_SECRET,
+      BUSAPI_URL: 'https://api.topcoder-dev.com/v6',
+      KAFKA_ERROR_TOPIC: 'common.error.reporting',
+    });
+  });
+
+  it.each([
+    'AUTH0_URL',
+    'AUTH0_AUDIENCE',
+    'AUTH0_CLIENT_ID',
+    'AUTH0_CLIENT_SECRET',
+  ])('requires %s when bus is enabled', (key) => {
+    expect(() =>
+      readConfig({ ...baseEnv, ...auth0Env, USE_KEYCLOAK: 'false', [key]: '' }),
+    ).toThrow(key);
+  });
+
+  it('rejects a USE_KEYCLOAK value other than true/false', () => {
+    expect(() =>
+      readConfig({ ...baseEnv, ...auth0Env, USE_KEYCLOAK: 'yes' }),
+    ).toThrow('USE_KEYCLOAK must be true or false');
   });
 });

@@ -14,7 +14,7 @@
 
 Inbound authentication uses the pinned `tc-core-library-js` authenticator for both HS256 and RS256. For the dev reports application, `VALID_ISSUERS` must include `https://auth.topcoder-dev.com/` exactly (including the trailing slash); its public signing keys are fetched from `https://auth.topcoder-dev.com/.well-known/jwks.json`. Keep the legacy API issuer and other intended trusted issuers in the same list. The runtime needs outbound HTTPS access to those JWKS endpoints.
 
-The Keycloak migration branch requires `M2M_PROVIDER=keycloak`, `KEYCLOAK_ISSUER`, `KEYCLOAK_AUDIENCE` and `KEYCLOAK_TOKEN_URL`. Member audience policy requires `AUTH_USER_AUDIENCES` (JSON array) or explicit `ALLOW_LEGACY_USER_AUDIENCE=true`. This exception never applies to machines. `AUTH_MODE`, `AUTH_AUDIENCE`, `JWKS_URL` and `AUTH_CLAIM_NAMESPACE` do not configure the shared validator. See [the rollout guide](keycloak-m2m.md); existing application services remain on their previous branches until rollout.
+`USE_KEYCLOAK=true` selects Keycloak M2M and then requires `KEYCLOAK_ISSUER`, `KEYCLOAK_AUDIENCE` and `KEYCLOAK_TOKEN_URL`; unset or `false` uses Auth0 (machine tokens trusted through `LEGACY_M2M_ISSUERS`/`LEGACY_M2M_AUDIENCE`). Any other value fails at startup. Member audience policy requires `AUTH_USER_AUDIENCES` (JSON array) or explicit `ALLOW_LEGACY_USER_AUDIENCE=true`. This exception never applies to machines. `AUTH_MODE`, `AUTH_AUDIENCE`, `JWKS_URL` and `AUTH_CLAIM_NAMESPACE` do not configure the shared validator. See [the rollout guide](keycloak-m2m.md); existing application services remain on their previous branches until rollout.
 
 All Forms tables, enums, functions, migration history, and reporting views live in the `forms` schema. The database can be shared with other services. Models and raw SQL explicitly qualify this schema; migrations do not change other schemas. PostgreSQL TLS options belong in the connection URL/driver configuration. The service does not disable certificate verification.
 
@@ -32,12 +32,17 @@ Ordinary submissions need no Bus API configuration. To accept `kafka=true` submi
 | Variable | Meaning |
 | --- | --- |
 | `BUSAPI_URL` | HTTP(S) API base ending in `/v6`, e.g. `https://api.topcoder-dev.com/v6`. The shared wrapper appends `/bus/events`. |
-| `KEYCLOAK_TOKEN_URL` | Managed Keycloak token endpoint used by the shared Topcoder M2M client. |
-| `KEYCLOAK_AUDIENCE` | Outbound M2M audience used to acquire a Bus API token. |
-| `KEYCLOAK_CLIENT_ID`, `KEYCLOAK_CLIENT_SECRET` | Service credentials authorized to publish Bus API events. Required when `BUSAPI_URL` is set. |
+| `KEYCLOAK_TOKEN_URL` | `USE_KEYCLOAK=true`: managed Keycloak token endpoint used by the shared Topcoder M2M client. |
+| `KEYCLOAK_AUDIENCE` | `USE_KEYCLOAK=true`: outbound M2M audience used to acquire a Bus API token. |
+| `KEYCLOAK_CLIENT_ID`, `KEYCLOAK_CLIENT_SECRET` | `USE_KEYCLOAK=true`: service credentials authorized to publish Bus API events. Required when `BUSAPI_URL` is set. |
+| `AUTH0_URL` | `USE_KEYCLOAK` unset/`false`: Auth0 token endpoint used by the shared Topcoder M2M client. |
+| `AUTH0_AUDIENCE` | `USE_KEYCLOAK` unset/`false`: outbound M2M audience used to acquire a Bus API token. |
+| `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET` | `USE_KEYCLOAK` unset/`false`: service credentials authorized to publish Bus API events. Required when `BUSAPI_URL` is set. |
+| `AUTH0_PROXY_SERVER_URL` | `USE_KEYCLOAK` unset/`false`: optional Auth0 proxy supported by the shared wrapper. |
+| `TOKEN_CACHE_TIME` | Optional M2M token cache duration in milliseconds, 0–86400000; otherwise uses the wrapper default. |
 | `KAFKA_ERROR_TOPIC` | Wrapper error-topic setting, default `common.error.reporting`; submission topic is always `form.submitted`. |
 
-For ECS, expose the required Bus API/Keycloak settings and explicit issuer/provider settings to the runtime container through its task-definition secrets through the existing appvar injection. Store them under the service parameter prefix so its existing SSM read permissions apply; never put credentials in the template.
+For ECS, expose the required Bus API settings for both providers to the runtime container through its task-definition secrets through the existing appvar injection. `USE_KEYCLOAK` and the shared token URLs/audiences come from `/config/common/global-appvar`; store service credentials under the service parameter prefix; never put credentials in the template.
 
 Apply migration `20260928010000_submission_events` before deploying this version. It adds the `forms.SubmissionEvent` delivery table; it does not change existing submissions or reporting views. The service role needs SELECT/INSERT/UPDATE on this table. Ensure `form.submitted` is available through Bus API and downstream consumers deduplicate on the payload's `submissionId`.
 
@@ -111,4 +116,4 @@ For a full packaged smoke test, start Compose, check readiness, and run `pnpm de
 
 Host Payload/website rollout requires their normal integration/configuration changes and checks, described in [the integration guide](payload-integration.md). This service's tests do not claim a deployed CMS or public website has been changed.
 
-The wrapper retains legacy `AUTH0_*` option names internally, supplied only with Keycloak values. The pinned core owns expiry-aware caching; `TOKEN_CACHE_TIME` does not override token lifetime.
+The wrapper retains legacy `AUTH0_*` option names internally, supplied with the Keycloak values when `USE_KEYCLOAK=true` and the Auth0 values otherwise. The pinned core owns expiry-aware caching; `TOKEN_CACHE_TIME` does not override token lifetime.

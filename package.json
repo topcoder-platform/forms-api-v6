@@ -43,7 +43,7 @@
     "reflect-metadata": "0.2.2",
     "rxjs": "7.8.2",
     "tc-bus-api-wrapper": "github:topcoder-platform/tc-bus-api-wrapper#297a9c0adcdb97661257e7825bee9c3f5578b833",
-    "tc-core-library-js": "https://codeload.github.com/topcoder-platform/tc-core-library-js/tar.gz/c262f4aca971904f308085bdeaaed35cdf3cfa7d"
+    "tc-core-library-js": "https://codeload.github.com/topcoder-platform/tc-core-library-js/tar.gz/e844764e1c2cadcc01fd5e05029590319802af09"
   },
   "devDependencies": {
     "@eslint/js": "9.39.2",

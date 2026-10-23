@@ -23,7 +23,7 @@ Keys are lowercase snake_case, begin with a letter, and contain at most 40 chara
 
 ## Authentication
 
-Authorization is deny-by-default. Public routes may omit a token; invalid supplied tokens return 401. `tc-core-library-js`'s `auth.createValidator` owns signature, exact issuer/audience, lifetime and identity classification. This branch requires explicit Keycloak settings. Member HS256/RS256 sessions remain supported; `AUTH_USER_AUDIENCES` or explicit `ALLOW_LEGACY_USER_AUDIENCE=true` controls member audience policy. Machine audience checks are always mandatory. See [migration settings](keycloak-m2m.md).
+Authorization is deny-by-default. Public routes may omit a token; invalid supplied tokens return 401. `tc-core-library-js`'s `auth.createValidator` owns signature, exact issuer/audience, lifetime and identity classification. `USE_KEYCLOAK=true` requires explicit Keycloak settings; unset or `false` trusts Auth0 machine tokens through `LEGACY_M2M_*`. Member HS256/RS256 sessions remain supported; `AUTH_USER_AUDIENCES` or explicit `ALLOW_LEGACY_USER_AUDIENCE=true` controls member audience policy. Machine audience checks are always mandatory. See [migration settings](keycloak-m2m.md).
 
 Only core-normalized roles, member IDs and scopes reach the Forms actor. Known Topcoder namespaces are supported; arbitrary claim suffixes and `AUTH_CLAIM_NAMESPACE` are not. Roles are matched case-insensitively. Legacy member tokens without `sub` use their verified numeric member ID for audit. A subject never substitutes for a missing member ID. Service identities carry no member roles or IDs; exact machine scopes are checked with `auth.hasScopes`.
 

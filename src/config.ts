@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import type { BusApiConfiguration } from 'tc-bus-api-wrapper';
+import { auth } from 'tc-core-library-js';
 
 /** Runtime configuration validated once before Nest starts serving requests. */
 export interface AppConfig {
@@ -89,9 +90,16 @@ export const CONFIG = Symbol('forms.config');
 
 /**
  * Reads optional outbound Bus API settings without requiring them for ordinary forms.
+ * The wrapper always takes `AUTH0_*` option names; `USE_KEYCLOAK` in `env` (decided by
+ * `auth.useKeycloak`) selects which settings fill them and are required:
+ * - `true`: `KEYCLOAK_TOKEN_URL`, `KEYCLOAK_AUDIENCE`, `KEYCLOAK_CLIENT_ID`, `KEYCLOAK_CLIENT_SECRET`.
+ * - unset, empty or `false`: `AUTH0_URL`, `AUTH0_AUDIENCE`, `AUTH0_CLIENT_ID`,
+ *   `AUTH0_CLIENT_SECRET`, plus optional `AUTH0_PROXY_SERVER_URL`, as before the migration.
+ * `TOKEN_CACHE_TIME` and `KAFKA_ERROR_TOPIC` apply to both.
  * @param env Environment map used by readConfig.
  * @returns Wrapper configuration when BUSAPI_URL is set, otherwise undefined.
- * @throws Error for partial credentials, invalid URLs, or invalid cache duration.
+ * @throws Error for partial credentials of the active provider, invalid URLs, or invalid
+ * cache duration; TypeError when `USE_KEYCLOAK` is not true/false.
  */
 function readBusConfig(
   env: NodeJS.ProcessEnv,
@@ -108,17 +116,29 @@ function readBusConfig(
     url.password
   )
     throw new Error('BUSAPI_URL must be an HTTP(S) API base ending in /v6.');
+  const keycloak = auth.useKeycloak({ USE_KEYCLOAK: env.USE_KEYCLOAK });
+  const proxy = keycloak ? undefined : env.AUTH0_PROXY_SERVER_URL?.trim();
   return {
     BUSAPI_URL: url.toString().replace(/\/$/, ''),
-    AUTH0_URL: required(env, 'KEYCLOAK_TOKEN_URL'),
-    AUTH0_AUDIENCE: required(env, 'KEYCLOAK_AUDIENCE'),
-    AUTH0_CLIENT_ID: required(env, 'KEYCLOAK_CLIENT_ID'),
-    AUTH0_CLIENT_SECRET: required(env, 'KEYCLOAK_CLIENT_SECRET'),
+    AUTH0_URL: required(env, keycloak ? 'KEYCLOAK_TOKEN_URL' : 'AUTH0_URL'),
+    AUTH0_AUDIENCE: required(
+      env,
+      keycloak ? 'KEYCLOAK_AUDIENCE' : 'AUTH0_AUDIENCE',
+    ),
+    AUTH0_CLIENT_ID: required(
+      env,
+      keycloak ? 'KEYCLOAK_CLIENT_ID' : 'AUTH0_CLIENT_ID',
+    ),
+    AUTH0_CLIENT_SECRET: required(
+      env,
+      keycloak ? 'KEYCLOAK_CLIENT_SECRET' : 'AUTH0_CLIENT_SECRET',
+    ),
     KAFKA_ERROR_TOPIC:
       env.KAFKA_ERROR_TOPIC?.trim() || 'common.error.reporting',
     ...(env.TOKEN_CACHE_TIME
       ? { TOKEN_CACHE_TIME: integerSetting(env.TOKEN_CACHE_TIME, 0, 86400000) }
       : {}),
+    ...(proxy ? { AUTH0_PROXY_SERVER_URL: proxy } : {}),
   };
 }
 

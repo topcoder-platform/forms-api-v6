@@ -1,4 +1,4 @@
-> Migration branch: this code is isolated on `keycloak_m2M` and requires the explicit [Keycloak configuration](../docs/keycloak-m2m.md). Historical Auth0 deployment manifests and procedures below describe the existing deployment, not a ready-to-run rollout of this branch. Do not apply them to deploy this branch without replacing M2M credentials/trust settings.
+> Migration branch: this code is isolated on `keycloak_m2M`. `USE_KEYCLOAK=true` requires the explicit [Keycloak configuration](../docs/keycloak-m2m.md); with `USE_KEYCLOAK` unset or `false` it uses the Auth0 settings described below. Historical Auth0 deployment manifests and procedures below describe the existing deployment; they do not list the Keycloak settings.
 
 # Production handoff — 2026-10-06
 
