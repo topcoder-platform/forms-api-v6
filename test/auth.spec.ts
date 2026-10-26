@@ -101,7 +101,6 @@ describe('Topcoder bearer authentication', () => {
     { sub: 42, aud: 'forms-api' },
     { gty: 'client-credentials' },
     { isMachine: true },
-    { scope: 'read:forms-submissions', roles: [] },
   ])('rejects invalid or nonlegacy claims %#', async (claims) => {
     await expect(authenticate(claims)).rejects.toMatchObject({ status: 401 });
   });
@@ -127,18 +126,14 @@ describe('Topcoder bearer authentication', () => {
     },
   );
 
-  it('keeps machine scope authorization separate from administrator roles', async () => {
+  it('rejects machine claims signed under the legacy audience-free human policy', async () => {
     const machine = {
       sub: 'client@clients',
       aud: 'forms-api',
       gty: 'client-credentials',
+      userId: undefined, roles: undefined,
     };
-    await expect(authenticate(machine)).rejects.toMatchObject({ status: 403 });
-    expect(
-      await authenticate({ ...machine, scope: 'read:forms-submissions' }),
-    ).toMatchObject({
-      machine: true,
-      memberId: undefined,
-    });
+    await expect(authenticate(machine)).rejects.toMatchObject({ status: 401 });
+    await expect(authenticate({ ...machine, scope: 'read:forms-submissions' })).rejects.toMatchObject({ status: 401 });
   });
 });
