@@ -46,6 +46,71 @@ type Definition = Prisma.FormVersionGetPayload<{
   include: typeof definitionInclude;
 }>;
 
+/** Processor action that classifies submissions (forms-processor-v6 ADR 0001). */
+const CLASSIFY_ACTION = 'ai-classify';
+const UNKNOWN_LABEL = 'UNKNOWN';
+
+/** Report columns appended for forms with AI classification, after the answer columns. */
+const CLASSIFICATION_COLUMNS = [
+  'classification',
+  'classification_status',
+  'classification_confidence',
+  'classification_needs_review',
+  'classification_run_id',
+];
+const CLASSIFICATION_LABELS: Record<string, string> = {
+  classification: 'Classification',
+  classification_status: 'Classification status',
+  classification_confidence: 'Confidence',
+  classification_needs_review: 'Needs review',
+  classification_run_id: 'AI run',
+};
+
+/**
+ * Maps a stored classification, or its absence, to report cells.
+ * @param row The submission's classification row, or null when never classified.
+ * @returns Cells keyed by CLASSIFICATION_COLUMNS; a missing row reports as UNKNOWN.
+ * @throws Does not throw.
+ */
+export function classificationCells(
+  row:
+    | {
+        label: string;
+        status: string;
+        confidence: Prisma.Decimal | null;
+        needsReview: boolean | null;
+        workflowRunId: string | null;
+      }
+    | null
+    | undefined,
+): Record<string, unknown> {
+  return {
+    classification: row?.label ?? UNKNOWN_LABEL,
+    classification_status: row?.status ?? null,
+    classification_confidence: row?.confidence?.toFixed() ?? null,
+    classification_needs_review: row?.needsReview ?? null,
+    classification_run_id: row?.workflowRunId ?? null,
+  };
+}
+
+/**
+ * Builds the relation filter for one label. UNKNOWN also matches submissions with no row.
+ * @param label Validated classification label. @returns Prisma relation filter.
+ * @throws Does not throw.
+ */
+export function classificationFilter(
+  label: string,
+): Prisma.SubmissionWhereInput {
+  return label === UNKNOWN_LABEL
+    ? {
+        OR: [
+          { classification: { is: null } },
+          { classification: { is: { label: UNKNOWN_LABEL } } },
+        ],
+      }
+    : { classification: { is: { label } } };
+}
+
 /** Manages immutable form revisions, publication, typed submission writes, optional Bus API events, and private reports. */
 @Injectable()
 export class FormsService {
@@ -140,9 +205,17 @@ export class FormsService {
       },
     });
     if (!form) throw new NotFoundException('Form not found.');
+    // Forms routed through the processor's AI classification report its label.
+    const classified =
+      (await this.db.processorFlow.count({
+        where: { formKey: key, action: CLASSIFY_ACTION },
+      })) > 0;
     const where: Prisma.SubmissionWhereInput = {
       versionId: { in: form.versions.map((version) => version.id) },
       createdAt: { ...dates, ...(snapshot ? { lte: snapshot } : {}) },
+      ...(classified && page.classification
+        ? classificationFilter(page.classification)
+        : {}),
     };
     if (
       page.after &&
@@ -168,6 +241,7 @@ export class FormsService {
             },
           },
           version: true,
+          classification: classified,
         },
       }),
       this.db.submission.count({ where }),
@@ -186,6 +260,7 @@ export class FormsService {
       'source_page',
       'form_version',
       ...fields.map((field) => field.key),
+      ...(classified ? CLASSIFICATION_COLUMNS : []),
     ];
     const data = submissions.slice(0, page.limit).map((submission) => {
       const row: Record<string, unknown> = Object.fromEntries(
@@ -212,14 +287,17 @@ export class FormsService {
               answer.option?.key ??
               null);
       }
+      if (classified)
+        Object.assign(row, classificationCells(submission.classification));
       return row;
     });
     return {
       form: key,
       columns,
-      labels: Object.fromEntries(
-        fields.map((field) => [field.key, field.label]),
-      ),
+      labels: {
+        ...Object.fromEntries(fields.map((field) => [field.key, field.label])),
+        ...(classified ? CLASSIFICATION_LABELS : {}),
+      },
       data,
       total,
       nextCursor:
