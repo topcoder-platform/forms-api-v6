@@ -18,6 +18,7 @@ erDiagram
     FormField ||--o{ FieldOption : choices
     FormVersion ||--o{ Submission : receives
     Submission ||--o| SubmissionEvent : delivery
+    Submission ||--o| SubmissionClassification : classification
     Submission ||--o{ Answer : contains
     FormField ||--o{ Answer : constrains
     Answer ||--o{ AnswerSelection : selects
@@ -34,6 +35,7 @@ erDiagram
 | `FieldOption`     | Named option key and label, owned by a field/version.                                                                                                               |
 | `Submission`      | Exact version, server timestamp, UUID idempotency key, canonical request hash, verified member ID, and optional source page path.                                   |
 | `SubmissionEvent` | Optional one-to-one delivery receipt with submission UUID and nullable publication timestamp; cascades on submission deletion. |
+| `SubmissionClassification` | Optional one-to-one AI classification written by forms-processor-v6: label (`UPPER_SNAKE` string, not an enum, because the class set is configured in tc-ai-api), status (`PENDING`/`CLASSIFIED`/`FAILED`), confidence 0–1, needs-review flag, language, rationale, tc-ai-api workflow run id, attempts and last error. CHECK constraints enforce the label format, status values, confidence range and complete `CLASSIFIED` rows. Cascades on submission deletion. No row reports as `UNKNOWN`. |
 | `Answer`          | One scalar value in a type-specific column, or a multi-select answer parent; unique per submission/field.                                                           |
 | `AnswerSelection` | One row per selected option, with composite ownership foreign keys and duplicate prevention.                                                                        |
 
@@ -125,6 +127,12 @@ action settings. No matching flow means the event is retained but has no actions
 Flow additions/rule edits apply to events not yet routed; replay requires explicitly
 clearing `routedAt` and never deletes existing delivery receipts. Bus API email-event acceptance
 and the receipt cannot be atomic; a crash in between can cause a duplicate email.
+
+Flows whose rules carry a `classification` label list (`{"all":[],"classification":["SALES_LEAD"]}`)
+are routed by the processor only after the submission is classified, and only while
+enabled. Migration `20261022010000_lets_talk_classification` seeds the Let's talk
+classify and label flows disabled; forms-processor-v6 ADR 0001 and its
+`examples/lets-talk-shadow-mode.sql` / `lets-talk-cutover.sql` describe the rollout.
 
 Processor events contain answers and must be included in personal-data retention
 and erasure procedures separately from `Submission`. Deleting a ProcessorEvent
