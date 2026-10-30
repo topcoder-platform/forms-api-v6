@@ -3,7 +3,7 @@ import {
   Injectable,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import createBusApiClient, { type BusApiClient } from 'tc-bus-api-wrapper';
+import { createBusApiClient as createBusApiClient, type BusApiClient } from 'tc-core-library-js';
 import { CONFIG, type AppConfig } from '../config';
 import type { AnswerValue } from '../forms/validation';
 

@@ -24,7 +24,7 @@ import {
 import { syncForm, type ManagedForm } from '../integrations/payload/forms';
 
 const { postEvent } = vi.hoisted(() => ({ postEvent: vi.fn() }));
-vi.mock('tc-bus-api-wrapper', () => ({ default: () => ({ postEvent }) }));
+vi.mock('tc-core-library-js', async (importOriginal) => ({ ...await importOriginal<typeof import('tc-core-library-js')>(), createBusApiClient: () => ({ postEvent }) }));
 
 describe('forms API with real PostgreSQL', () => {
   let app: Awaited<ReturnType<typeof createApp>>;

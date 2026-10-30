@@ -10,7 +10,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
 import jwt from 'jsonwebtoken';
-import { middleware, type AuthenticatorRequest } from 'tc-core-library-js';
+import { createJwtAuthenticator, type AuthenticatorRequest } from 'tc-core-library-js';
 import { CONFIG, type AppConfig } from './config';
 
 export type Permission = 'public' | 'manage' | 'report';
@@ -35,7 +35,7 @@ export interface ActorRequest extends Request {
 @Injectable()
 export class AuthGuard implements CanActivate {
   private readonly authenticator: ReturnType<
-    typeof middleware.jwtAuthenticator
+    typeof createJwtAuthenticator
   >;
 
   /**
@@ -47,7 +47,9 @@ export class AuthGuard implements CanActivate {
     @Inject(CONFIG) private readonly config: AppConfig,
     private readonly reflector: Reflector,
   ) {
-    this.authenticator = middleware.jwtAuthenticator({
+    this.authenticator = createJwtAuthenticator({
+      AUTH0_AUDIENCE: config.machineAudience,
+      JWT_AUDIENCE: config.jwtAudience,
       AUTH_SECRET: config.authSecret,
       VALID_ISSUERS: JSON.stringify(config.issuers),
     });
@@ -101,7 +103,7 @@ export class AuthGuard implements CanActivate {
    * @throws Error for unsupported algorithms, invalid tokens or missing time claims.
    */
   private async authenticate(token: string): Promise<Record<string, unknown>> {
-    // The shared verifier does not call back for unsupported algorithms.
+    // Reject unsupported algorithms before invoking the shared verifier.
     const decoded = jwt.decode(token, { complete: true });
     if (!decoded || !['HS256', 'RS256'].includes(decoded.header.alg))
       throw new Error('Unsupported token algorithm.');
@@ -148,11 +150,7 @@ export function normalizeActor(
     ',',
   ).map((r) => r.toLowerCase());
   const scopes = stringList(claims.scope ?? claims.scopes, /\s+/);
-  const machine =
-    claims.gty === 'client-credentials' ||
-    claims.isMachine === true ||
-    (typeof claims.sub === 'string' && claims.sub.endsWith('@clients')) ||
-    (scopes.length > 0 && roles.length === 0);
+  const machine = claims.isMachine === true;
   const userId = claims.userId ?? claims[`${namespace}userId`];
   const memberId =
     !machine &&
