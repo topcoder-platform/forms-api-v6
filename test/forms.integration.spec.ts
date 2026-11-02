@@ -9,7 +9,9 @@ import {
   vi,
 } from 'vitest';
 import request from 'supertest';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, generateKeyPairSync } from 'node:crypto';
+import jwt from 'jsonwebtoken';
+import nock from 'nock';
 import letsTalkDefinition from '../examples/lets-talk.json';
 import { createApp } from '../src/bootstrap';
 import { DbService } from '../src/db.service';
@@ -33,10 +35,19 @@ describe('forms API with real PostgreSQL', () => {
   let reporter: string;
   let member: string;
   let machine: string;
+  const machineKeys = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const machineToken = (claims: Record<string, unknown>) => jwt.sign(claims, machineKeys.privateKey, {
+    algorithm: 'RS256', keyid: 'forms-machine-fixture', issuer: 'https://forms.test',
+    audience: 'forms-api', subject: 'test-client@clients', expiresIn: 300,
+  });
 
   beforeAll(async () => {
+    nock('https://forms.test').get('/.well-known/jwks.json').once().reply(200, {
+      keys: [{ ...machineKeys.publicKey.export({ format: 'jwk' }), kid: 'forms-machine-fixture', alg: 'RS256', use: 'sig' }],
+    });
     app = await createApp({
       ...testConfig(),
+      machineAudience: 'forms-api',
       busApi: {
         BUSAPI_URL: 'https://bus.test/v6',
         AUTH0_URL: 'https://auth.test',
@@ -54,7 +65,7 @@ describe('forms API with real PostgreSQL', () => {
       'https://topcoder.com/roles': ['Member'],
       'https://topcoder.com/userId': '12345',
     });
-    machine = await token({
+    machine = machineToken({
       gty: 'client-credentials',
       azp: 'test-client',
       scope: 'manage:forms read:forms-submissions',
@@ -65,6 +76,7 @@ describe('forms API with real PostgreSQL', () => {
   });
   afterAll(async () => {
     if (app) await app.close();
+    nock.cleanAll();
   });
 
   /**
@@ -186,7 +198,7 @@ describe('forms API with real PostgreSQL', () => {
       key,
       title: 'Event interest',
     });
-    const readOnly = await token({
+    const readOnly = machineToken({
       gty: 'client-credentials',
       azp: 'test-client',
       scope: 'read:forms-submissions',

@@ -131,9 +131,10 @@ describe('definition and deployment policies', () => {
       normalizeActor(
         {
           sub: 'client@clients',
-          userId: 'forged',
-          roles: ['Administrator'],
+          // This helper receives the shared verifier's normalized identity.
+          roles: [],
           gty: 'client-credentials',
+          isMachine: true,
         },
         'https://topcoder.com/',
       ),

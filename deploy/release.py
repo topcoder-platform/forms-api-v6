@@ -82,7 +82,7 @@ def main():
     container.pop('healthCheck', None)
     container['portMappings'] = []
     container['secrets'] = [{'name': 'DATABASE_URL', 'valueFrom': settings['ParameterPrefix'] + '/MIGRATION_DATABASE_URL'}]
-    container['command'] = ['/bin/sh', '-c', 'pnpm migrate:deploy']
+    container['command'] = ['node', 'node_modules/prisma/build/index.js', 'migrate', 'deploy']
     migration_definition = ecs.register_task_definition(**migration)['taskDefinition']['taskDefinitionArn']
     result = ecs.run_task(cluster=settings['ClusterName'], taskDefinition=migration_definition,
                           launchType='FARGATE', networkConfiguration=service['networkConfiguration'],
