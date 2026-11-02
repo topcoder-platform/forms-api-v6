@@ -8,5 +8,6 @@ export default tseslint.config(
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
+  { files: ['tools/**/*.cjs'], languageOptions: { sourceType: 'commonjs' }, rules: { '@typescript-eslint/no-require-imports': 'off' } },
   { languageOptions: { globals: { ...globals.node, ...globals.browser } } },
 );

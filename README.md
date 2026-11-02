@@ -14,7 +14,7 @@ All tables and views live in the `forms` schema; dev uses the shared `topcoder-s
 
 ## Stack
 
-- Node **26.8.1**, pinned in `.nvmrc` and Docker; current release verified against the [Node release listing](https://nodejs.org/en/download/current) on September 9, 2026.
+- Node **26.12.1**, pinned in `.nvmrc` and the Docker build.
 - NestJS **11.1.28**, matching the other v6 services and the supported peer range of Nest Throttler.
 - TypeScript **5.9.3**, strict checking and decorator metadata.
 - Prisma **7.10.0**, generated TypeScript client and `@prisma/adapter-pg`.
@@ -129,3 +129,9 @@ not retry POSTs automatically. Application retry/outbox behavior remains local.
 
 See the [core migration guide](https://github.com/topcoder-platform/tc-core-library-js/blob/v4.0.0-rc.1/MIGRATION.md)
 for the API mapping, compatibility requirements, and rollout scope.
+
+## Security maintenance
+
+The runtime and one-shot migration images use Alpine 3.24's patched Node 26 package and run as UID 10001. The runtime contains only production dependencies and compiled code. Migration tasks invoke the installed Prisma CLI directly with Node; npm and pnpm are not shipped in either final image. The RDS CA bundle and `NODE_EXTRA_CA_CERTS` remain configured in both images.
+
+The lockfile pins patched dependencies and an immutable shared core revision. `pnpm test:dependency-compat` verifies the legacy matcher adapter. Integration fixtures use real RS256 machine tokens with an isolated JWKS endpoint, so the shared verifier's issuer, signature, audience, and machine-identity restrictions remain enabled.
