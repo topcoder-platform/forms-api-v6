@@ -422,6 +422,20 @@ describe('forms API with real PostgreSQL', () => {
     );
   });
 
+  it('seeds the SpaceTech challenge email disabled, with settings left to the processor environment', async () => {
+    const flows = await db.processorFlow.findMany({
+      where: { formKey: 'space_tech_challenge' },
+    });
+    expect(flows).toHaveLength(1);
+    expect(flows[0]).toMatchObject({
+      id: 'space-tech-challenge-email',
+      enabled: false,
+      action: 'sendgrid-email',
+      rules: { all: [] },
+      settings: {},
+    });
+  });
+
   it('reports AI classification columns and filters by label only for forms with a classify flow', async () => {
     const key = await create({
       ...definition(),
