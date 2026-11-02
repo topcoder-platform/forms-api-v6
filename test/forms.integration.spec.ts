@@ -9,7 +9,7 @@ import {
   vi,
 } from 'vitest';
 import request from 'supertest';
-import { randomUUID, generateKeyPairSync } from 'node:crypto';
+import { generateKeyPairSync, randomUUID, type KeyObject } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import nock from 'nock';
 import letsTalkDefinition from '../examples/lets-talk.json';
@@ -35,16 +35,45 @@ describe('forms API with real PostgreSQL', () => {
   let reporter: string;
   let member: string;
   let machine: string;
-  const machineKeys = generateKeyPairSync('rsa', { modulusLength: 2048 });
-  const machineToken = (claims: Record<string, unknown>) => jwt.sign(claims, machineKeys.privateKey, {
-    algorithm: 'RS256', keyid: 'forms-machine-fixture', issuer: 'https://forms.test',
-    audience: 'forms-api', subject: 'test-client@clients', expiresIn: 300,
-  });
+  let machineKey: KeyObject;
+  const machineKeyId = 'forms-integration-machine';
+
+  /**
+   * Signs audience-bound machine credentials for the shared RSA verification policy.
+   * @param scope Space-separated forms permissions. @returns Signed machine bearer token.
+   * @throws JWT signing errors for invalid fixture keys or claims.
+   */
+  function machineToken(scope: string) {
+    return jwt.sign(
+      { gty: 'client-credentials', azp: 'test-client', scope },
+      machineKey,
+      {
+        algorithm: 'RS256',
+        keyid: machineKeyId,
+        subject: 'test-client@clients',
+        issuer: 'https://forms.test',
+        audience: 'forms-api',
+        expiresIn: '5m',
+      },
+    );
+  }
 
   beforeAll(async () => {
-    nock('https://forms.test').get('/.well-known/jwks.json').once().reply(200, {
-      keys: [{ ...machineKeys.publicKey.export({ format: 'jwk' }), kid: 'forms-machine-fixture', alg: 'RS256', use: 'sig' }],
-    });
+    const keys = generateKeyPairSync('rsa', { modulusLength: 2048 });
+    machineKey = keys.privateKey;
+    // Mock key discovery only; the shared authenticator still verifies RSA signatures.
+    nock('https://forms.test')
+      .get('/.well-known/jwks.json')
+      .reply(200, {
+        keys: [
+          {
+            ...keys.publicKey.export({ format: 'jwk' }),
+            kid: machineKeyId,
+            alg: 'RS256',
+            use: 'sig',
+          },
+        ],
+      });
     app = await createApp({
       ...testConfig(),
       machineAudience: 'forms-api',
@@ -65,11 +94,7 @@ describe('forms API with real PostgreSQL', () => {
       'https://topcoder.com/roles': ['Member'],
       'https://topcoder.com/userId': '12345',
     });
-    machine = machineToken({
-      gty: 'client-credentials',
-      azp: 'test-client',
-      scope: 'manage:forms read:forms-submissions',
-    });
+    machine = machineToken('manage:forms read:forms-submissions');
   });
   beforeEach(() => {
     postEvent.mockReset().mockResolvedValue(undefined);
@@ -198,11 +223,7 @@ describe('forms API with real PostgreSQL', () => {
       key,
       title: 'Event interest',
     });
-    const readOnly = machineToken({
-      gty: 'client-credentials',
-      azp: 'test-client',
-      scope: 'read:forms-submissions',
-    });
+    const readOnly = machineToken('read:forms-submissions');
     await request(app.getHttpServer())
       .get('/v6/forms/reports/directory')
       .auth(readOnly, { type: 'bearer' })
@@ -399,6 +420,20 @@ describe('forms API with real PostgreSQL', () => {
     expect(flows.find((flow) => flow.id === 'lets-talk-classify')?.action).toBe(
       'ai-classify',
     );
+  });
+
+  it('seeds the SpaceTech challenge email disabled, with settings left to the processor environment', async () => {
+    const flows = await db.processorFlow.findMany({
+      where: { formKey: 'space_tech_challenge' },
+    });
+    expect(flows).toHaveLength(1);
+    expect(flows[0]).toMatchObject({
+      id: 'space-tech-challenge-email',
+      enabled: false,
+      action: 'sendgrid-email',
+      rules: { all: [] },
+      settings: {},
+    });
   });
 
   it('reports AI classification columns and filters by label only for forms with a classify flow', async () => {

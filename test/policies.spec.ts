@@ -127,18 +127,26 @@ describe('definition and deployment policies', () => {
       machine: false,
       roles: ['member'],
     });
+    // Machine identity is decided by the shared tc-core-library-js verifier (`isMachine`);
+    // a machine never gets a member identity, even with a userId claim.
     expect(
       normalizeActor(
         {
           sub: 'client@clients',
-          // This helper receives the shared verifier's normalized identity.
-          roles: [],
+          userId: 'forged',
           gty: 'client-credentials',
           isMachine: true,
         },
         'https://topcoder.com/',
       ),
     ).toMatchObject({ memberId: undefined, machine: true });
+    // Without the verifier's flag, machine-looking claims are not trusted as a machine.
+    expect(
+      normalizeActor(
+        { sub: 'client@clients', gty: 'client-credentials' },
+        'https://topcoder.com/',
+      ),
+    ).toMatchObject({ machine: false });
   });
 
   it('requires signed-token settings and exact CORS origins, defaulting to untrusted proxy headers', () => {

@@ -1,0 +1,36 @@
+{
+  "title": "Share your space-data challenge",
+  "description": "",
+  "successMessage": "Thanks for sharing your challenge. We'll get back to you within 48 hours on whether it's a fit.",
+  "access": "ANONYMOUS",
+  "fields": [
+    {
+      "key": "full_name",
+      "label": "Full Name",
+      "type": "TEXT",
+      "required": true,
+      "maxLength": 200
+    },
+    {
+      "key": "company",
+      "label": "Company",
+      "type": "TEXT",
+      "required": true,
+      "maxLength": 200
+    },
+    {
+      "key": "email",
+      "label": "Work Email",
+      "type": "EMAIL",
+      "required": true,
+      "maxLength": 254
+    },
+    {
+      "key": "challenge",
+      "label": "Which challenge are you trying to solve?",
+      "type": "TEXTAREA",
+      "required": true,
+      "maxLength": 5000
+    }
+  ]
+}
