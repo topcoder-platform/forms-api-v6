@@ -42,6 +42,8 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(request['executionRoleArn'], self.m['executionRoleArn'])
         self.assertEqual(container['secrets'], [{'name': 'DATABASE_URL', 'valueFrom': '/config/forms-api-v6/appvar/MIGRATION_DATABASE_URL'}])
         self.assertNotIn('healthCheck', container)
+        self.assertEqual(container['command'], ['node', 'node_modules/prisma/build/index.js', 'migrate', 'deploy'])
+        self.assertNotIn('tags', request)
         self.assertEqual(self.task, original)
 
     def test_wrong_role_stops_before_a_migration_can_run(self):
@@ -108,6 +110,7 @@ class ReleaseTests(unittest.TestCase):
                 aws = Mock()
                 def call(api_service, operation, **kwargs):
                     if operation == 'register-task-definition':
+                        self.assertNotIn('tags', kwargs)
                         return {'taskDefinition': {'taskDefinitionArn': self.new}}
                     if operation == 'describe-task-definition':
                         return {'taskDefinition': {k: v for k, v in request.items() if k != 'tags'}, 'tags': []}
@@ -120,6 +123,18 @@ class ReleaseTests(unittest.TestCase):
                      patch.object(r.d, 'read_service'), patch.object(r.d, 'stable', return_value=True), \
                      patch.object(r.d, 'verify_running', return_value=True):
                     self.assertEqual(r.promote(aws, self.m, previous, self.task, [], self.image), self.new)
+
+    def test_optional_circuit_breaker_fields_preserve_safety_flags(self):
+        self.previous['deploymentConfiguration']['deploymentCircuitBreaker'].update(resetOnHealthyTask=True, thresholdConfiguration={'minimumFailureThreshold': 3})
+        aws = Mock()
+        aws.call.return_value = {'services': [self.previous]}
+        self.assertEqual(r.read_service(aws, self.m), self.previous)
+        for flag in ('enable', 'rollback'):
+            with self.subTest(flag=flag):
+                self.previous['deploymentConfiguration']['deploymentCircuitBreaker'][flag] = False
+                with self.assertRaises(r.d.DeployError):
+                    r.read_service(aws, self.m)
+                self.previous['deploymentConfiguration']['deploymentCircuitBreaker'][flag] = True
 
 
 if __name__ == '__main__':

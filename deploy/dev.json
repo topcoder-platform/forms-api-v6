@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 2,
+  "environment": "dev",
+  "accountId": "811668436784",
+  "region": "us-east-1",
+  "deployRoleArn": "arn:aws:iam::811668436784:role/forms-api-v6-dev-deploy",
+  "taskRoleArn": "arn:aws:iam::811668436784:role/forms-api-v6-dev-TaskRole-14rblBbkqXuT",
+  "executionRoleArn": "arn:aws:iam::811668436784:role/ecsTaskExecutionRole",
+  "cluster": "topcoder-infrastructure",
+  "service": "forms-api-v6",
+  "taskFamily": "forms-api-v6",
+  "circleciOrgId": "947bef5e-1669-415d-b83c-4fc85155b7df",
+  "circleciProjectId": "ac910b17-c01b-494f-876b-43fddd16f82b",
+  "repository": "github.com/topcoder-platform/forms-api-v6",
+  "branch": "develop",
+  "images": {
+    "forms-api-v6": "forms-api-v6"
+  }
+}

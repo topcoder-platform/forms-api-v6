@@ -45,7 +45,8 @@ def read_service(aws, m):
     d.require(service.get('status') == 'ACTIVE' and service.get('desiredCount', -1) >= 0, 'Forms service is not active')
     d.require(service.get('serviceArn') == d.arn(m, 'ecs', f"service/{m['cluster']}/{m['service']}"), 'Unexpected service ARN')
     d.require(service.get('deploymentController', {}).get('type', 'ECS') == 'ECS', 'Forms requires ECS rolling deployment')
-    d.require(service.get('deploymentConfiguration', {}).get('deploymentCircuitBreaker') == {'enable': True, 'rollback': True}, 'Enable Forms circuit-breaker rollback')
+    breaker = service.get('deploymentConfiguration', {}).get('deploymentCircuitBreaker')
+    d.require(isinstance(breaker, dict) and breaker.get('enable') is True and breaker.get('rollback') is True, 'Enable Forms circuit-breaker rollback')
     return service
 
 
@@ -72,7 +73,7 @@ def migration_request(m, task, tags, image):
     container['portMappings'] = []
     container['secrets'] = [{'name': 'DATABASE_URL', 'valueFrom': '/config/forms-api-v6/appvar/MIGRATION_DATABASE_URL'}]
     container['environment'] = [v for v in container.get('environment', []) if v['name'] != 'DATABASE_URL']
-    container['command'] = ['pnpm', 'migrate:deploy']
+    container['command'] = ['node', 'node_modules/prisma/build/index.js', 'migrate', 'deploy']
     return request
 
 
@@ -109,7 +110,7 @@ def promote(aws, m, previous, task, tags, image):
     actual = {k: v for k, v in saved['taskDefinition'].items() if k in d.TASK_FIELDS}
     actual['tags'] = sorted(saved.get('tags', []), key=lambda x: x['key'])
     expected = deepcopy(request)
-    expected['tags'] = sorted(expected['tags'], key=lambda x: x['key'])
+    expected['tags'] = sorted(expected.get('tags', []), key=lambda x: x['key'])
     d.require(actual == expected, 'Registered Forms runtime differs from the requested definition')
     d.require(initial_stable(read_service(aws, m), previous['taskDefinition']), 'Concurrent Forms release before activation')
     updated = aws.call('ecs', 'update-service', cluster=m['cluster'], service=m['service'],
