@@ -132,8 +132,8 @@ describe('definition and deployment policies', () => {
         {
           sub: 'client@clients',
           userId: 'forged',
-          roles: ['Administrator'],
           gty: 'client-credentials',
+          isMachine: true,
         },
         'https://topcoder.com/',
       ),
