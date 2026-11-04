@@ -134,6 +134,13 @@ enabled. Migration `20261022010000_lets_talk_classification` seeds the Let's tal
 classify and label flows disabled; forms-processor-v6 ADR 0001 and its
 `examples/lets-talk-shadow-mode.sql` / `lets-talk-cutover.sql` describe the rollout.
 
+Migration `20261102010000_space_tech_challenge_email` seeds `space-tech-challenge-email`,
+which emails every `space_tech_challenge` submission to a fixed list, with the submitter's
+`email` answer as reply-to. It is disabled with empty settings: forms-processor-v6 supplies
+the recipients and template from `SPACE_TECH_CHALLENGE_RECIPIENTS` and
+`SPACE_TECH_CHALLENGE_TEMPLATE_ID`. Enable it in SQL after both are set and the processor
+is redeployed.
+
 Processor events contain answers and must be included in personal-data retention
 and erasure procedures separately from `Submission`. Deleting a ProcessorEvent
 cascades its delivery records and removes deduplication protection, so retain it
