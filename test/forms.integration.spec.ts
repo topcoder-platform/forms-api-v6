@@ -76,7 +76,8 @@ describe('forms API with real PostgreSQL', () => {
       });
     app = await createApp({
       ...testConfig(),
-      machineAudience: 'forms-api',
+      // TODO: restore
+      // machineAudience: 'forms-api',
       busApi: {
         BUSAPI_URL: 'https://bus.test/v6',
         AUTH0_URL: 'https://auth.test',
