@@ -28,7 +28,7 @@ export function testConfig() {
  */
 export async function token(claims: Record<string, unknown>) {
   const { SignJWT } = await import('jose');
-  return new SignJWT(claims)
+  return new SignJWT({ emailVerified: true, ...claims })
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject('test-user')
     .setIssuer('https://forms.test')
