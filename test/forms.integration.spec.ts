@@ -9,7 +9,9 @@ import {
   vi,
 } from 'vitest';
 import request from 'supertest';
-import { randomUUID } from 'node:crypto';
+import { generateKeyPairSync, randomUUID, type KeyObject } from 'node:crypto';
+import jwt from 'jsonwebtoken';
+import nock from 'nock';
 import letsTalkDefinition from '../examples/lets-talk.json';
 import { createApp } from '../src/bootstrap';
 import { DbService } from '../src/db.service';
@@ -24,7 +26,7 @@ import {
 import { syncForm, type ManagedForm } from '../integrations/payload/forms';
 
 const { postEvent } = vi.hoisted(() => ({ postEvent: vi.fn() }));
-vi.mock('tc-bus-api-wrapper', () => ({ default: () => ({ postEvent }) }));
+vi.mock('tc-core-library-js', async (importOriginal) => ({ ...await importOriginal<typeof import('tc-core-library-js')>(), createBusApiClient: () => ({ postEvent }) }));
 
 describe('forms API with real PostgreSQL', () => {
   let app: Awaited<ReturnType<typeof createApp>>;
@@ -33,10 +35,48 @@ describe('forms API with real PostgreSQL', () => {
   let reporter: string;
   let member: string;
   let machine: string;
+  let machineKey: KeyObject;
+  const machineKeyId = 'forms-integration-machine';
+
+  /**
+   * Signs audience-bound machine credentials for the shared RSA verification policy.
+   * @param scope Space-separated forms permissions. @returns Signed machine bearer token.
+   * @throws JWT signing errors for invalid fixture keys or claims.
+   */
+  function machineToken(scope: string) {
+    return jwt.sign(
+      { gty: 'client-credentials', azp: 'test-client', scope },
+      machineKey,
+      {
+        algorithm: 'RS256',
+        keyid: machineKeyId,
+        subject: 'test-client@clients',
+        issuer: 'https://forms.test',
+        audience: 'forms-api',
+        expiresIn: '5m',
+      },
+    );
+  }
 
   beforeAll(async () => {
+    const keys = generateKeyPairSync('rsa', { modulusLength: 2048 });
+    machineKey = keys.privateKey;
+    // Mock key discovery only; the shared authenticator still verifies RSA signatures.
+    nock('https://forms.test')
+      .get('/.well-known/jwks.json')
+      .reply(200, {
+        keys: [
+          {
+            ...keys.publicKey.export({ format: 'jwk' }),
+            kid: machineKeyId,
+            alg: 'RS256',
+            use: 'sig',
+          },
+        ],
+      });
     app = await createApp({
       ...testConfig(),
+      machineAudience: 'forms-api',
       busApi: {
         BUSAPI_URL: 'https://bus.test/v6',
         AUTH0_URL: 'https://auth.test',
@@ -54,17 +94,14 @@ describe('forms API with real PostgreSQL', () => {
       'https://topcoder.com/roles': ['Member'],
       'https://topcoder.com/userId': '12345',
     });
-    machine = await token({
-      gty: 'client-credentials',
-      azp: 'test-client',
-      scope: 'manage:forms read:forms-submissions',
-    });
+    machine = machineToken('manage:forms read:forms-submissions');
   });
   beforeEach(() => {
     postEvent.mockReset().mockResolvedValue(undefined);
   });
   afterAll(async () => {
     if (app) await app.close();
+    nock.cleanAll();
   });
 
   /**
@@ -186,11 +223,7 @@ describe('forms API with real PostgreSQL', () => {
       key,
       title: 'Event interest',
     });
-    const readOnly = await token({
-      gty: 'client-credentials',
-      azp: 'test-client',
-      scope: 'read:forms-submissions',
-    });
+    const readOnly = machineToken('read:forms-submissions');
     await request(app.getHttpServer())
       .get('/v6/forms/reports/directory')
       .auth(readOnly, { type: 'bearer' })

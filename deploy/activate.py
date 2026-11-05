@@ -6,7 +6,6 @@ AWS_ECS_* deployvars and CIRCLE_BUILD_NUM; keeps existing nonzero replica counts
 """
 import os
 
-import boto3
 
 from release import wait_until
 
@@ -65,14 +64,7 @@ def activate_service(ecs, cluster, service_name, expected_image):
 
 
 def main():
-    """Read CircleCI/deployvar settings and activate the expected image; errors propagate."""
-    session = boto3.Session(region_name=os.environ.get('AWS_REGION', 'us-east-1'))
-    account = session.client('sts').get_caller_identity()['Account']
-    image = (f'{account}.dkr.ecr.{session.region_name}.amazonaws.com/'
-             f'{os.environ["AWS_REPOSITORY"]}:{os.environ["CIRCLE_BUILD_NUM"]}')
-    service = activate_service(session.client('ecs'), os.environ['AWS_ECS_CLUSTER'],
-                               os.environ['AWS_ECS_SERVICE'], image)
-    print('Verified running release: ' + service['taskDefinition'], flush=True)
+    raise RuntimeError('Activation is now part of deploy/release.py after the scanned migration gate.')
 
 
 if __name__ == '__main__':

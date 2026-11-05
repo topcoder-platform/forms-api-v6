@@ -8,7 +8,7 @@ const { postEvent, createClient } = vi.hoisted(() => {
   const postEvent = vi.fn();
   return { postEvent, createClient: vi.fn(() => ({ postEvent })) };
 });
-vi.mock('tc-bus-api-wrapper', () => ({ default: createClient }));
+vi.mock('tc-core-library-js', async (importOriginal) => ({ ...await importOriginal<typeof import('tc-core-library-js')>(), createBusApiClient: createClient }));
 
 const baseEnv = {
   DATABASE_URL: 'postgresql://localhost/forms',

@@ -1,112 +1,163 @@
 #!/usr/bin/env python3
-"""Run the migration gate before the shared Topcoder ECS deployment script.
-
-CLI: release.py dev|production IMAGE_TAG [MIGRATION_IMAGE].
-Requires inherited AWS credentials, boto3, and Docker. Pushes the prebuilt migration
-image to ECR and runs it as a private one-shot ECS task. Raises on failures so
-CircleCI stops before master_deploy.sh promotes the runtime image.
-"""
-import base64
-import copy
+"""Scan both images, run the one-shot migration, then promote/activate Forms."""
+from copy import deepcopy
 import json
 import os
 from pathlib import Path
-import re
-import subprocess
 import sys
+import tempfile
 import time
 
-import boto3
+sys.path.insert(0, '/tmp/tc-deploy-scripts')
+import tcdeploy as d
 
 
-def wait_until(description, check, seconds=1800):
-    """Poll a live deployment check every 15 seconds, returning its truthy result.
-
-    Inputs are a progress label, callable, and timeout. Check exceptions propagate;
-    timeout raises RuntimeError without restarting the observed deployment.
-    """
+def wait_until(description, check, seconds=900):
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
         result = check()
         if result:
             return result
-        print(f'Waiting for {description}...', flush=True)
-        time.sleep(15)
-    raise RuntimeError(f'Timed out observing {description}; inspect the existing AWS operation before retrying.')
+        time.sleep(10)
+    raise d.DeployError('Timed out: ' + description)
 
 
-def main():
-    """Validate CLI arguments and environment, run migrations, and save evidence.
+def stack_settings(aws, m):
+    environment = 'production' if m['environment'] == 'prod' else 'dev'
+    stack_name = 'forms-api-v6-' + environment
+    stacks = aws.call('cloudformation', 'describe-stacks', StackName=stack_name).get('Stacks', [])
+    d.require(len(stacks) == 1, 'Expected the existing Forms stack')
+    stack = stacks[0]
+    d.require(stack.get('StackStatus') in ('CREATE_COMPLETE', 'UPDATE_COMPLETE', 'UPDATE_ROLLBACK_COMPLETE'), 'Forms stack is not stable')
+    settings = {v['ParameterKey']: v['ParameterValue'] for v in stack.get('Parameters', [])}
+    output = {v['OutputKey']: v['OutputValue'] for v in stack.get('Outputs', [])}
+    d.require(settings.get('Environment') == environment and settings.get('BootstrapOnly') == 'false', 'Complete Forms infrastructure bootstrap before releasing')
+    d.require(settings.get('ClusterName') == m['cluster'] and output.get('ServiceName') == m['service'], 'Forms stack target differs from manifest')
+    d.require(settings.get('ParameterPrefix') == '/config/forms-api-v6/appvar', 'Unexpected migration secret namespace')
+    d.require(output.get('RepositoryUri') == f"{m['accountId']}.dkr.ecr.{m['region']}.amazonaws.com/forms-api-v6", 'Unexpected Forms repository')
+    return settings
 
-    Returns None on success; AWS, Docker, and failed migration
-    errors propagate. Credentials are passed through stdin/environment, never argv.
-    """
-    if len(sys.argv) not in (3, 4) or sys.argv[1] not in ('dev', 'production'):
-        raise RuntimeError(__doc__)
-    environment, tag = sys.argv[1:3]
-    if not re.fullmatch(r'[A-Za-z0-9_][A-Za-z0-9_.-]{0,110}', tag):
-        raise RuntimeError('Invalid immutable release tag.')
-    local_migration = sys.argv[3] if len(sys.argv) == 4 else 'forms-api-v6:migrate-candidate'
-    session = boto3.Session(region_name=os.environ.get('AWS_REGION', 'us-east-1'))
-    account = session.client('sts').get_caller_identity()['Account']
-    if (account == '811668436784') != (environment == 'dev'):
-        raise RuntimeError('AWS account does not match the selected deployment environment.')
-    cfn, ecs, ecr = [session.client(name) for name in ['cloudformation', 'ecs', 'ecr']]
-    stack_name = f'forms-api-v6-{environment}'
-    stack = cfn.describe_stacks(StackName=stack_name)['Stacks'][0]
-    if stack['StackStatus'] not in ('CREATE_COMPLETE', 'UPDATE_COMPLETE', 'UPDATE_ROLLBACK_COMPLETE'):
-        raise RuntimeError('Existing stack is not stable; inspect it before releasing.')
-    settings = {x['ParameterKey']: x['ParameterValue'] for x in stack['Parameters']}
-    if settings['Environment'] != environment or settings['BootstrapOnly'] != 'false':
-        raise RuntimeError('Stack environment or bootstrap state does not permit deployment.')
-    output = {x['OutputKey']: x['OutputValue'] for x in stack['Outputs']}
-    repository = output['RepositoryUri']
-    authorization = ecr.get_authorization_token()['authorizationData'][0]
-    user, password = base64.b64decode(authorization['authorizationToken']).decode().split(':', 1)
-    subprocess.run(['docker', 'login', '--username', user, '--password-stdin', authorization['proxyEndpoint']],
-                   input=password, text=True, check=True, stdout=subprocess.DEVNULL)
-    destination = f'{repository}:{tag}-migrate'
-    subprocess.run(['docker', 'tag', local_migration, destination], check=True)
-    subprocess.run(['docker', 'push', destination], check=True)
-    digest = ecr.describe_images(repositoryName='forms-api-v6', imageIds=[{'imageTag': tag + '-migrate'}])['imageDetails'][0]['imageDigest']
-    migration_image = f'{repository}@{digest}'
-    service = ecs.describe_services(cluster=settings['ClusterName'], services=[output['ServiceName']])['services'][0]
-    current = ecs.describe_task_definition(taskDefinition=service['taskDefinition'])['taskDefinition']
-    allowed = {'family', 'taskRoleArn', 'executionRoleArn', 'networkMode', 'containerDefinitions',
-               'volumes', 'placementConstraints', 'requiresCompatibilities', 'cpu', 'memory', 'runtimePlatform', 'ephemeralStorage'}
-    migration = {k: copy.deepcopy(v) for k, v in current.items() if k in allowed}
-    migration['family'] = 'forms-api-v6-migrate'
-    container = migration['containerDefinitions'][0]
-    container['image'] = migration_image
+
+def read_service(aws, m):
+    result = aws.call('ecs', 'describe-services', cluster=m['cluster'], services=[m['service']])
+    d.require(not result.get('failures') and len(result.get('services', [])) == 1, 'Expected the existing Forms service')
+    service = result['services'][0]
+    d.require(service.get('status') == 'ACTIVE' and service.get('desiredCount', -1) >= 0, 'Forms service is not active')
+    d.require(service.get('serviceArn') == d.arn(m, 'ecs', f"service/{m['cluster']}/{m['service']}"), 'Unexpected service ARN')
+    d.require(service.get('deploymentController', {}).get('type', 'ECS') == 'ECS', 'Forms requires ECS rolling deployment')
+    breaker = service.get('deploymentConfiguration', {}).get('deploymentCircuitBreaker')
+    d.require(isinstance(breaker, dict) and breaker.get('enable') is True and breaker.get('rollback') is True, 'Enable Forms circuit-breaker rollback')
+    return service
+
+
+def initial_stable(service, definition):
+    d.require(service.get('taskDefinition') == definition, 'Concurrent Forms deployment detected')
+    deployments = service.get('deployments', [])
+    d.require(not any(x.get('rolloutState') == 'FAILED' for x in deployments), 'Forms rollout failed')
+    return (len(deployments) == 1 and deployments[0].get('rolloutState') == 'COMPLETED'
+            and deployments[0].get('taskDefinition') == definition
+            and service.get('runningCount') == service['desiredCount']
+            and service.get('pendingCount') == 0)
+
+
+def migration_request(m, task, tags, image):
+    # Validate exact roles, runtime settings, health checks and secret references
+    # before deriving a separate one-shot definition from this service.
+    request = d.task_request(m, task, tags, {'forms-api-v6': image})
+    request['family'] = 'forms-api-v6-migrate'
+    containers = request['containerDefinitions']
+    d.require(len(containers) == 1 and containers[0]['name'] == 'forms-api-v6', 'Unexpected Forms containers')
+    container = containers[0]
     container['readonlyRootFilesystem'] = False
     container.pop('healthCheck', None)
     container['portMappings'] = []
-    container['secrets'] = [{'name': 'DATABASE_URL', 'valueFrom': settings['ParameterPrefix'] + '/MIGRATION_DATABASE_URL'}]
-    container['command'] = ['/bin/sh', '-c', 'pnpm migrate:deploy']
-    migration_definition = ecs.register_task_definition(**migration)['taskDefinition']['taskDefinitionArn']
-    result = ecs.run_task(cluster=settings['ClusterName'], taskDefinition=migration_definition,
-                          launchType='FARGATE', networkConfiguration=service['networkConfiguration'],
-                          startedBy='forms-release')
-    if result.get('failures') or not result.get('tasks'):
-        raise RuntimeError('ECS could not start the migration task.')
-    migration_arn = result['tasks'][0]['taskArn']
-    print('Migration task: ' + migration_arn, flush=True)
+    container['secrets'] = [{'name': 'DATABASE_URL', 'valueFrom': '/config/forms-api-v6/appvar/MIGRATION_DATABASE_URL'}]
+    container['environment'] = [v for v in container.get('environment', []) if v['name'] != 'DATABASE_URL']
+    container['command'] = ['node', 'node_modules/prisma/build/index.js', 'migrate', 'deploy']
+    return request
 
-    def migration_finished():
-        """Read this migration task; return the stopped task, or None while live."""
-        tasks = ecs.describe_tasks(cluster=settings['ClusterName'], tasks=[migration_arn])['tasks']
-        if not tasks:
-            raise RuntimeError('Migration task handle is missing; inspect ECS before retrying.')
-        return tasks[0] if tasks[0]['lastStatus'] == 'STOPPED' else None
 
-    completed = wait_until('migration task ' + migration_arn, migration_finished)
-    if any(c.get('exitCode') != 0 for c in completed['containers']):
-        raise RuntimeError('Migration failed; inspect the migration task logs. Runtime was not promoted.')
-    evidence = {'environment': environment, 'tag': tag, 'migrationImage': migration_image,
-                'migrationTask': migration_arn, 'stack': stack_name}
-    Path('deploy/release-' + environment + '.json').write_text(json.dumps(evidence, indent=2) + '\n')
-    print(json.dumps(evidence, indent=2))
+def migrate(aws, m, service, task, tags, image):
+    request = migration_request(m, task, tags, image)
+    definition = aws.call('ecs', 'register-task-definition', **request)['taskDefinition']['taskDefinitionArn']
+    d.require(definition.startswith(d.arn(m, 'ecs', 'task-definition/forms-api-v6-migrate:')), 'Unexpected migration family')
+    result = aws.call('ecs', 'run-task', cluster=m['cluster'], taskDefinition=definition,
+        launchType='FARGATE', networkConfiguration=service['networkConfiguration'], startedBy='forms-release')
+    d.require(not result.get('failures') and len(result.get('tasks', [])) == 1, 'Migration task could not start')
+    task_arn = result['tasks'][0]['taskArn']
+
+    def stopped():
+        result = aws.call('ecs', 'describe-tasks', cluster=m['cluster'], tasks=[task_arn])
+        d.require(not result.get('failures') and len(result.get('tasks', [])) == 1, 'Migration task is missing')
+        current = result['tasks'][0]
+        d.require(current.get('taskDefinitionArn') == definition, 'Migration task revision differs')
+        return current if current.get('lastStatus') == 'STOPPED' else None
+
+    completed = wait_until('Forms migration', stopped)
+    containers = completed.get('containers', [])
+    d.require(len(containers) == 1 and containers[0].get('exitCode') == 0
+              and containers[0].get('imageDigest') == image.rsplit('@', 1)[1],
+              'Migration failed or executed an unexpected image; runtime was not promoted')
+    return task_arn
+
+
+def promote(aws, m, previous, task, tags, image):
+    d.require(initial_stable(read_service(aws, m), previous['taskDefinition']), 'Service changed during migration')
+    request = d.task_request(m, task, tags, {'forms-api-v6': image})
+    definition = aws.call('ecs', 'register-task-definition', **request)['taskDefinition']['taskDefinitionArn']
+    d.require(definition.startswith(d.arn(m, 'ecs', 'task-definition/' + m['taskFamily'] + ':')), 'Unexpected runtime family')
+    saved = aws.call('ecs', 'describe-task-definition', taskDefinition=definition, include=['TAGS'])
+    actual = {k: v for k, v in saved['taskDefinition'].items() if k in d.TASK_FIELDS}
+    actual['tags'] = sorted(saved.get('tags', []), key=lambda x: x['key'])
+    expected = deepcopy(request)
+    expected['tags'] = sorted(expected.get('tags', []), key=lambda x: x['key'])
+    d.require(actual == expected, 'Registered Forms runtime differs from the requested definition')
+    d.require(initial_stable(read_service(aws, m), previous['taskDefinition']), 'Concurrent Forms release before activation')
+    updated = aws.call('ecs', 'update-service', cluster=m['cluster'], service=m['service'],
+                       taskDefinition=definition, desiredCount=max(1, previous['desiredCount']))
+    d.require(updated.get('service', {}).get('taskDefinition') == definition, 'ECS did not accept the Forms revision')
+
+    def healthy():
+        current = d.read_service(aws, m)
+        return (d.stable(current, definition) and
+                d.verify_running(aws, m, definition, {'forms-api-v6': image}, current['desiredCount']))
+
+    wait_until('healthy Forms runtime', healthy, seconds=1200)
+    return definition
+
+
+def release(aws, m, publisher, release_tag):
+    stack_settings(aws, m)
+    previous = read_service(aws, m)
+    d.require(initial_stable(previous, previous['taskDefinition']), 'Forms must be stable before release')
+    response = aws.call('ecs', 'describe-task-definition', taskDefinition=previous['taskDefinition'], include=['TAGS'])
+    task, tags = response['taskDefinition'], response.get('tags', [])
+    migration_request(m, task, tags, 'preflight@sha256:' + '0' * 64)
+    deadline = time.monotonic() + 900
+    runtime = publisher.publish('forms-api-v6', 'forms-api-v6:candidate', release_tag, deadline)
+    migration = publisher.publish('forms-api-v6', 'forms-api-v6:migrate-candidate', release_tag + '-migrate', deadline)
+    d.require(initial_stable(read_service(aws, m), previous['taskDefinition']), 'Service changed during image publication')
+    migration_task = migrate(aws, m, previous, task, tags, migration)
+    definition = promote(aws, m, previous, task, tags, runtime)
+    return {'service': m['service'], 'taskDefinition': definition, 'migrationTask': migration_task, 'image': runtime}
+
+
+def main():
+    m = d.read_manifest(sys.argv[1])
+    d.require(m['service'] == 'forms-api-v6' and set(m['images']) == {'forms-api-v6'}, 'Expected Forms manifest')
+    d.require(os.environ.get('CIRCLE_BRANCH') == m['branch'] and not os.environ.get('CIRCLE_TAG'), 'Wrong deployment branch')
+    d.require(os.environ.get('CIRCLE_PROJECT_USERNAME', '') + '/' + os.environ.get('CIRCLE_PROJECT_REPONAME', '') == m['repository'].removeprefix('github.com/'), 'Wrong deployment repository')
+    tag = os.environ.get('CIRCLE_SHA1', '') + '-' + os.environ.get('CIRCLE_BUILD_NUM', '')
+    d.require(d.re.fullmatch(r'[a-f0-9]{40}-[0-9]{1,12}', tag), 'Invalid release identity')
+    aws = d.authenticate(m, os.environ.get('CIRCLE_OIDC_TOKEN_V3'), ['ecs:RunTask', 'cloudformation:DescribeStacks'])
+    with tempfile.TemporaryDirectory(prefix='forms-release-') as directory:
+        result = release(aws, m, d.Publisher(aws, m, directory), tag)
+    print(json.dumps(result))
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except (d.DeployError, ValueError, KeyError, TypeError, OSError, IndexError):
+        print('Forms release stopped; inspect the migration or ECS rollout. No secret values were fetched.', file=sys.stderr)
+        sys.exit(1)

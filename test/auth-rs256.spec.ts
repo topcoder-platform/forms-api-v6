@@ -81,6 +81,7 @@ beforeAll(async () => {
             'https://api.topcoder-dev.com',
           ]),
           // Obsolete deployment settings must not keep rejecting Auth0 browser tokens.
+          JWT_AUDIENCE: 'BXWXUWnilVUPdN01t2Se29Tw2ZYNGZvH',
           AUTH_MODE: 'hs256',
           AUTH_AUDIENCE: 'forms-api',
         }),

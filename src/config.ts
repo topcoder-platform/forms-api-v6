@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import type { BusApiConfiguration } from 'tc-bus-api-wrapper';
+import type { BusApiConfiguration } from 'tc-core-library-js';
 
 /** Runtime configuration validated once before Nest starts serving requests. */
 export interface AppConfig {
@@ -8,6 +8,8 @@ export interface AppConfig {
   port: number;
   origins: string[];
   authSecret: string;
+  jwtAudience?: string;
+  machineAudience?: string;
   issuers: string[];
   claimNamespace: string;
   throttleLimit: number;
@@ -49,6 +51,8 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     port: integerSetting(env.PORT ?? '3000', 1, 65535),
     origins,
     authSecret,
+    jwtAudience: env.JWT_AUDIENCE,
+    machineAudience: env.AUTH0_AUDIENCE,
     issuers,
     claimNamespace: env.AUTH_CLAIM_NAMESPACE ?? 'https://topcoder.com/',
     throttleLimit: integerSetting(env.THROTTLE_LIMIT ?? '30', 1, 10000),
