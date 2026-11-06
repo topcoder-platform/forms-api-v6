@@ -436,6 +436,92 @@ describe('forms API with real PostgreSQL', () => {
     });
   });
 
+  it('reports SendGrid message IDs per submission only for forms with an email flow', async () => {
+    const key = await create({
+      ...definition(),
+      fields: definition().fields.map((field) => ({
+        ...field,
+        required: false,
+      })),
+    });
+    const version = await db.formVersion.findFirstOrThrow({
+      where: { form: { key } },
+    });
+    const reportPath = `/v6/forms/${key}/submissions`;
+    const report = async () =>
+      (
+        await request(app.getHttpServer())
+          .get(reportPath)
+          .auth(reporter, { type: 'bearer' })
+          .expect(200)
+      ).body as {
+        columns: string[];
+        labels: Record<string, string>;
+        data: Record<string, unknown>[];
+      };
+    // No email flow yet: the report is unchanged.
+    expect((await report()).columns).not.toContain('sendgrid_message_ids');
+
+    await db.processorFlow.createMany({
+      data: [
+        { id: `${key}-internal`, formKey: key, action: 'sendgrid-email' },
+        { id: `${key}-reply`, formKey: key, action: 'sendgrid-email' },
+      ],
+    });
+    const [emailed, pending] = [randomUUID(), randomUUID()];
+    await db.submission.createMany({
+      data: [emailed, pending].map((id, index) => ({
+        id,
+        versionId: version.id,
+        idempotencyKey: randomUUID(),
+        requestHash: 'a'.repeat(64),
+        createdAt: new Date(Date.UTC(2020, 9, 1 + index)),
+      })),
+    });
+    await db.processorEvent.createMany({
+      data: [emailed, pending].map((submissionId) => ({
+        submissionId,
+        formKey: key,
+        payload: {},
+      })),
+    });
+    await db.processorDelivery.createMany({
+      data: [
+        {
+          submissionId: emailed,
+          flowId: `${key}-reply`,
+          sendgridMessageId: 'sg-reply',
+          emailSentAt: new Date(Date.UTC(2020, 9, 1, 0, 2)),
+        },
+        {
+          submissionId: emailed,
+          flowId: `${key}-internal`,
+          sendgridMessageId: 'sg-internal',
+          emailSentAt: new Date(Date.UTC(2020, 9, 1, 0, 1)),
+        },
+        // Queued, or sent without a reported ID: no link.
+        { submissionId: pending, flowId: `${key}-internal` },
+      ],
+    });
+
+    const body = await report();
+    expect(body.columns.at(-1)).toBe('sendgrid_message_ids');
+    expect(body.labels.sendgrid_message_ids).toBe('SendGrid logs');
+    const byId = Object.fromEntries(
+      body.data.map((row) => [row.submission_id, row.sendgrid_message_ids]),
+    );
+    expect(byId).toEqual({
+      [emailed]: ['sg-internal', 'sg-reply'],
+      [pending]: [],
+    });
+    const csv = await request(app.getHttpServer())
+      .get(`${reportPath}/export`)
+      .auth(reporter, { type: 'bearer' })
+      .expect(200);
+    expect(csv.text.split('\r\n')[0]).toContain('"sendgrid_message_ids"');
+    expect(csv.text).toContain('"[""sg-internal"",""sg-reply""]"');
+  });
+
   it('reports AI classification columns and filters by label only for forms with a classify flow', async () => {
     const key = await create({
       ...definition(),

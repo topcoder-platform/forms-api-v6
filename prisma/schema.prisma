@@ -247,15 +247,19 @@ model ProcessorEvent {
 
 /// Per-flow acceptance receipt and retry schedule; Bus API acceptance is not recipient delivery confirmation.
 model ProcessorDelivery {
-  submissionId  String         @db.Uuid
-  flowId        String         @db.VarChar(100)
-  attempts      Int            @default(0)
-  nextAttemptAt DateTime       @default(now()) @db.Timestamptz(3)
-  lastError     String?        @db.VarChar(100)
-  deliveredAt   DateTime?      @db.Timestamptz(3)
-  createdAt     DateTime       @default(now()) @db.Timestamptz(3)
-  event         ProcessorEvent @relation(fields: [submissionId], references: [submissionId], onDelete: Cascade, onUpdate: NoAction)
-  flow          ProcessorFlow  @relation(fields: [flowId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  submissionId      String         @db.Uuid
+  flowId            String         @db.VarChar(100)
+  attempts          Int            @default(0)
+  nextAttemptAt     DateTime       @default(now()) @db.Timestamptz(3)
+  lastError         String?        @db.VarChar(100)
+  deliveredAt       DateTime?      @db.Timestamptz(3)
+  createdAt         DateTime       @default(now()) @db.Timestamptz(3)
+  /// SendGrid X-Message-Id reported by email-service-v6 (external.action.email.sent); the latest non-null report wins.
+  sendgridMessageId String?        @db.VarChar(255)
+  /// When SendGrid accepted the delivery's email, per the latest report.
+  emailSentAt       DateTime?      @db.Timestamptz(3)
+  event             ProcessorEvent @relation(fields: [submissionId], references: [submissionId], onDelete: Cascade, onUpdate: NoAction)
+  flow              ProcessorFlow  @relation(fields: [flowId], references: [id], onDelete: Restrict, onUpdate: NoAction)
 
   @@id([submissionId, flowId])
   @@index([deliveredAt, nextAttemptAt])

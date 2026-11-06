@@ -141,6 +141,12 @@ the recipients and template from `SPACE_TECH_CHALLENGE_RECIPIENTS` and
 `SPACE_TECH_CHALLENGE_TEMPLATE_ID`. Enable it in SQL after both are set and the processor
 is redeployed.
 
+Migration `20261104010000_processor_delivery_sendgrid_message` adds
+`ProcessorDelivery.sendgridMessageId` and `emailSentAt`. forms-processor-v6 fills them
+from email-service-v6's `external.action.email.sent` reports, matched by the email's
+`<submissionId>:<flowId>` correlation ID; the latest non-null ID wins. They are deleted
+with the delivery, and the submissions report lists them as `sendgrid_message_ids`.
+
 Processor events contain answers and must be included in personal-data retention
 and erasure procedures separately from `Submission`. Deleting a ProcessorEvent
 cascades its delivery records and removes deduplication protection, so retain it

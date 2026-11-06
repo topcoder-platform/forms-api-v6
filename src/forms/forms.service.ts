@@ -50,6 +50,11 @@ type Definition = Prisma.FormVersionGetPayload<{
 const CLASSIFY_ACTION = 'ai-classify';
 const UNKNOWN_LABEL = 'UNKNOWN';
 
+/** Processor action that emails through email-service-v6, which reports SendGrid message IDs back. */
+const EMAIL_ACTION = 'sendgrid-email';
+/** Report column listing each submission's SendGrid message IDs, after any classification columns. */
+const SENDGRID_MESSAGES_COLUMN = 'sendgrid_message_ids';
+
 /** Report columns appended for forms with AI classification, after the answer columns. */
 const CLASSIFICATION_COLUMNS = [
   'classification',
@@ -210,6 +215,11 @@ export class FormsService {
       (await this.db.processorFlow.count({
         where: { formKey: key, action: CLASSIFY_ACTION },
       })) > 0;
+    // Forms emailed by the processor report the SendGrid message IDs of their deliveries.
+    const emailed =
+      (await this.db.processorFlow.count({
+        where: { formKey: key, action: EMAIL_ACTION },
+      })) > 0;
     const where: Prisma.SubmissionWhereInput = {
       versionId: { in: form.versions.map((version) => version.id) },
       createdAt: { ...dates, ...(snapshot ? { lte: snapshot } : {}) },
@@ -261,8 +271,13 @@ export class FormsService {
       'form_version',
       ...fields.map((field) => field.key),
       ...(classified ? CLASSIFICATION_COLUMNS : []),
+      ...(emailed ? [SENDGRID_MESSAGES_COLUMN] : []),
     ];
-    const data = submissions.slice(0, page.limit).map((submission) => {
+    const pageSubmissions = submissions.slice(0, page.limit);
+    const messageIds = emailed
+      ? await this.sendgridMessageIds(pageSubmissions.map(({ id }) => id))
+      : new Map<string, string[]>();
+    const data = pageSubmissions.map((submission) => {
       const row: Record<string, unknown> = Object.fromEntries(
         columns.map((column) => [column, null]),
       );
@@ -289,6 +304,8 @@ export class FormsService {
       }
       if (classified)
         Object.assign(row, classificationCells(submission.classification));
+      if (emailed)
+        row[SENDGRID_MESSAGES_COLUMN] = messageIds.get(submission.id) ?? [];
       return row;
     });
     return {
@@ -297,12 +314,42 @@ export class FormsService {
       labels: {
         ...Object.fromEntries(fields.map((field) => [field.key, field.label])),
         ...(classified ? CLASSIFICATION_LABELS : {}),
+        ...(emailed ? { [SENDGRID_MESSAGES_COLUMN]: 'SendGrid logs' } : {}),
       },
       data,
       total,
       nextCursor:
         submissions.length > page.limit ? submissions[page.limit - 1].id : null,
     };
+  }
+
+  /**
+   * Reads the SendGrid message IDs email-service-v6 reported for these submissions' processor deliveries.
+   * Submission has no relation to the processor inbox, so deliveries are matched by submission ID.
+   * @param submissionIds One report page of submissions.
+   * @returns IDs per submission in send order; submissions without a reported send are absent.
+   * @throws Database errors on failure.
+   */
+  private async sendgridMessageIds(
+    submissionIds: string[],
+  ): Promise<Map<string, string[]>> {
+    const deliveries = submissionIds.length
+      ? await this.db.processorDelivery.findMany({
+          where: {
+            submissionId: { in: submissionIds },
+            sendgridMessageId: { not: null },
+          },
+          orderBy: [{ emailSentAt: 'asc' }, { createdAt: 'asc' }],
+          select: { submissionId: true, sendgridMessageId: true },
+        })
+      : [];
+    const ids = new Map<string, string[]>();
+    for (const { submissionId, sendgridMessageId } of deliveries)
+      ids.set(submissionId, [
+        ...(ids.get(submissionId) ?? []),
+        sendgridMessageId!,
+      ]);
+    return ids;
   }
 
   /**
