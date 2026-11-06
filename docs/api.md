@@ -154,6 +154,13 @@ reports `classification: "UNKNOWN"` with null details. Both accept an optional
 `UNKNOWN` also matches unclassified submissions. The filter is ignored for forms
 without classification. See forms-processor-v6 ADR 0001.
 
+**SendGrid message IDs.** For a form with a `sendgrid-email` processor flow (Let's
+talk, SpaceTech), both routes also append `sendgrid_message_ids` (label "SendGrid
+logs"), last: the SendGrid message IDs email-service-v6 reported for the submission's
+deliveries, oldest send first, or `[]` before any email was sent. The CSV writes the
+list as a JSON array. The reports portal links each ID to
+`https://app.sendgrid.com/email_logs/<id>/details`.
+
 Dates are optional **inclusive UTC calendar dates** in `YYYY-MM-DD`; an end date
 includes timestamps through 23:59:59.999. Invalid calendar dates and reversed
 ranges return 400. Existing version-specific JSON/CSV endpoints accept these same
