@@ -338,17 +338,23 @@ export class FormsService {
           where: {
             submissionId: { in: submissionIds },
             sendgridMessageId: { not: null },
+            // Only email deliveries report SendGrid sends.
+            flow: { action: EMAIL_ACTION },
           },
-          orderBy: [{ emailSentAt: 'asc' }, { createdAt: 'asc' }],
+          // PostgreSQL sorts NULLs first ascending; sends without a reported time go last.
+          orderBy: [
+            { emailSentAt: { sort: 'asc', nulls: 'last' } },
+            { createdAt: 'asc' },
+          ],
           select: { submissionId: true, sendgridMessageId: true },
         })
       : [];
     const ids = new Map<string, string[]>();
-    for (const { submissionId, sendgridMessageId } of deliveries)
-      ids.set(submissionId, [
-        ...(ids.get(submissionId) ?? []),
-        sendgridMessageId!,
-      ]);
+    for (const { submissionId, sendgridMessageId } of deliveries) {
+      const list = ids.get(submissionId);
+      if (list) list.push(sendgridMessageId!);
+      else ids.set(submissionId, [sendgridMessageId!]);
+    }
     return ids;
   }
 

@@ -466,6 +466,8 @@ describe('forms API with real PostgreSQL', () => {
       data: [
         { id: `${key}-internal`, formKey: key, action: 'sendgrid-email' },
         { id: `${key}-reply`, formKey: key, action: 'sendgrid-email' },
+        { id: `${key}-copy`, formKey: key, action: 'sendgrid-email' },
+        { id: `${key}-classify`, formKey: key, action: 'ai-classify' },
       ],
     });
     const [emailed, pending] = [randomUUID(), randomUUID()];
@@ -499,6 +501,18 @@ describe('forms API with real PostgreSQL', () => {
           sendgridMessageId: 'sg-internal',
           emailSentAt: new Date(Date.UTC(2020, 9, 1, 0, 1)),
         },
+        // An ID without a reported send time sorts after the dated sends.
+        {
+          submissionId: emailed,
+          flowId: `${key}-copy`,
+          sendgridMessageId: 'sg-undated',
+        },
+        // Only email deliveries count, whatever another flow's row holds.
+        {
+          submissionId: emailed,
+          flowId: `${key}-classify`,
+          sendgridMessageId: 'sg-not-email',
+        },
         // Queued, or sent without a reported ID: no link.
         { submissionId: pending, flowId: `${key}-internal` },
       ],
@@ -511,7 +525,7 @@ describe('forms API with real PostgreSQL', () => {
       body.data.map((row) => [row.submission_id, row.sendgrid_message_ids]),
     );
     expect(byId).toEqual({
-      [emailed]: ['sg-internal', 'sg-reply'],
+      [emailed]: ['sg-internal', 'sg-reply', 'sg-undated'],
       [pending]: [],
     });
     const csv = await request(app.getHttpServer())
@@ -519,7 +533,9 @@ describe('forms API with real PostgreSQL', () => {
       .auth(reporter, { type: 'bearer' })
       .expect(200);
     expect(csv.text.split('\r\n')[0]).toContain('"sendgrid_message_ids"');
-    expect(csv.text).toContain('"[""sg-internal"",""sg-reply""]"');
+    expect(csv.text).toContain(
+      '"[""sg-internal"",""sg-reply"",""sg-undated""]"',
+    );
   });
 
   it('reports AI classification columns and filters by label only for forms with a classify flow', async () => {
