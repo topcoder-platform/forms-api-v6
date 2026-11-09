@@ -51,7 +51,7 @@ describe('forms API with real PostgreSQL', () => {
         algorithm: 'RS256',
         keyid: machineKeyId,
         subject: 'test-client@clients',
-        issuer: 'https://forms.test',
+        issuer: 'https://forms-machine.test',
         audience: 'forms-api',
         expiresIn: '5m',
       },
@@ -62,7 +62,7 @@ describe('forms API with real PostgreSQL', () => {
     const keys = generateKeyPairSync('rsa', { modulusLength: 2048 });
     machineKey = keys.privateKey;
     // Mock key discovery only; the shared authenticator still verifies RSA signatures.
-    nock('https://forms.test')
+    nock('https://forms-machine.test')
       .get('/.well-known/jwks.json')
       .reply(200, {
         keys: [
@@ -1384,13 +1384,13 @@ describe('forms API with real PostgreSQL', () => {
         algorithm: 'HS256',
       },
       {
-        issuer: 'https://forms.test',
+        issuer: 'https://forms-machine.test',
         audience: 'forms-api',
         expiration: '-1m',
         algorithm: 'HS256',
       },
       {
-        issuer: 'https://forms.test',
+        issuer: 'https://forms-machine.test',
         audience: 'forms-api',
         expiration: '5m',
         algorithm: 'HS384',

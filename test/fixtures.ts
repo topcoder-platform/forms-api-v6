@@ -22,6 +22,12 @@ export function testConfig() {
         allowMissingAudience: true,
         legacyHs256Until: new Date(Date.now() + 3_600_000).toISOString(),
       },
+      {
+        issuer: 'https://forms-machine.test',
+        algorithm: 'RS256',
+        audience: 'forms-api',
+        jwksUri: 'https://forms-machine.test/.well-known/jwks.json',
+      },
     ]),
     VALID_ISSUERS: 'https://forms.test',
     THROTTLE_LIMIT: '10000',
