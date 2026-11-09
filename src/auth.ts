@@ -10,7 +10,10 @@ import {
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
 import jwt from 'jsonwebtoken';
-import { createJwtAuthenticator, type AuthenticatorRequest } from 'tc-core-library-js';
+import {
+  createJwtAuthenticator,
+  type AuthenticatorRequest,
+} from 'tc-core-library-js';
 import { CONFIG, type AppConfig } from './config';
 
 export type Permission = 'public' | 'manage' | 'report';
@@ -34,9 +37,7 @@ export interface ActorRequest extends Request {
 /** Validates bearer JWTs and applies the v6 human-role / M2M-scope permission split. */
 @Injectable()
 export class AuthGuard implements CanActivate {
-  private readonly authenticator: ReturnType<
-    typeof createJwtAuthenticator
-  >;
+  private readonly authenticator: ReturnType<typeof createJwtAuthenticator>;
 
   /**
    * Injects configuration and route metadata for authentication.
@@ -48,6 +49,7 @@ export class AuthGuard implements CanActivate {
     private readonly reflector: Reflector,
   ) {
     this.authenticator = createJwtAuthenticator({
+      JWT_ISSUER_POLICIES: config.jwtIssuerPolicies,
       AUTH0_AUDIENCE: config.machineAudience,
       JWT_AUDIENCE: config.jwtAudience,
       AUTH_SECRET: config.authSecret,

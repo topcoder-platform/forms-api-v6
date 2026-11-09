@@ -7,7 +7,8 @@ export interface AppConfig {
   busApi?: BusApiConfiguration;
   port: number;
   origins: string[];
-  authSecret: string;
+  authSecret?: string;
+  jwtIssuerPolicies?: string;
   jwtAudience?: string;
   machineAudience?: string;
   issuers: string[];
@@ -33,8 +34,10 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error('DATABASE_URL must be PostgreSQL using the forms schema.');
   }
   database.searchParams.set('schema', 'forms');
-  const authSecret = required(env, 'AUTH_SECRET');
-  if (authSecret.length < 32)
+  // Public-key issuer policies do not require a shared signing secret.
+  // The verifier still rejects an HS256 policy without a suitable secret.
+  const authSecret = env.AUTH_SECRET?.trim() || undefined;
+  if (authSecret && authSecret.length < 32)
     throw new Error('AUTH_SECRET must contain at least 32 characters.');
   const origins = (env.CORS_ORIGINS ?? '')
     .split(',')
@@ -51,6 +54,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     port: integerSetting(env.PORT ?? '3000', 1, 65535),
     origins,
     authSecret,
+    jwtIssuerPolicies: env.JWT_ISSUER_POLICIES,
     jwtAudience: env.JWT_AUDIENCE,
     machineAudience: env.AUTH0_AUDIENCE,
     issuers,

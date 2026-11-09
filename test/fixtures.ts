@@ -15,6 +15,14 @@ export function testConfig() {
   return readConfig({
     DATABASE_URL: process.env.TEST_DATABASE_URL,
     AUTH_SECRET: testSecret,
+    JWT_ISSUER_POLICIES: JSON.stringify([
+      {
+        issuer: 'https://forms.test',
+        algorithm: 'HS256',
+        allowMissingAudience: true,
+        legacyHs256Until: new Date(Date.now() + 3_600_000).toISOString(),
+      },
+    ]),
     VALID_ISSUERS: 'https://forms.test',
     THROTTLE_LIMIT: '10000',
     CORS_ORIGINS: 'https://www.topcoder.com',
@@ -28,7 +36,7 @@ export function testConfig() {
  */
 export async function token(claims: Record<string, unknown>) {
   const { SignJWT } = await import('jose');
-  return new SignJWT(claims)
+  return new SignJWT({ emailVerified: true, ...claims })
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject('test-user')
     .setIssuer('https://forms.test')

@@ -9,6 +9,18 @@ import { testSecret } from './fixtures';
 const config = readConfig({
   DATABASE_URL: 'postgresql://localhost/forms',
   AUTH_SECRET: testSecret,
+  JWT_ISSUER_POLICIES: JSON.stringify(
+    [
+      'https://api.topcoder-dev.com',
+      'https://api.topcoder.com',
+      'https://forms.test',
+    ].map((issuer) => ({
+      issuer,
+      algorithm: 'HS256',
+      allowMissingAudience: true,
+      legacyHs256Until: new Date(Date.now() + 3_600_000).toISOString(),
+    })),
+  ),
   VALID_ISSUERS:
     'https://api.topcoder-dev.com,https://api.topcoder.com,https://forms.test',
 });
@@ -30,6 +42,7 @@ async function authenticate(
   const now = Math.floor(Date.now() / 1000);
   const jwt = await new SignJWT({
     userId: '12345',
+    emailVerified: true,
     roles: ['Administrator'],
     iss: 'https://api.topcoder-dev.com',
     iat: now,
@@ -131,9 +144,12 @@ describe('Topcoder bearer authentication', () => {
       sub: 'client@clients',
       aud: 'forms-api',
       gty: 'client-credentials',
-      userId: undefined, roles: undefined,
+      userId: undefined,
+      roles: undefined,
     };
     await expect(authenticate(machine)).rejects.toMatchObject({ status: 401 });
-    await expect(authenticate({ ...machine, scope: 'read:forms-submissions' })).rejects.toMatchObject({ status: 401 });
+    await expect(
+      authenticate({ ...machine, scope: 'read:forms-submissions' }),
+    ).rejects.toMatchObject({ status: 401 });
   });
 });
