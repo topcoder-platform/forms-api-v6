@@ -37,6 +37,7 @@ function browserToken(
     iss: issuer,
     aud: 'BXWXUWnilVUPdN01t2Se29Tw2ZYNGZvH',
     sub: 'auth0|12345',
+    emailVerified: true,
     iat: now,
     exp: now + 300,
     ...overrides,
@@ -75,7 +76,6 @@ beforeAll(async () => {
         provide: CONFIG,
         useValue: readConfig({
           DATABASE_URL: 'postgresql://localhost/forms',
-          AUTH_SECRET: testSecret,
           VALID_ISSUERS: JSON.stringify([
             issuer,
             'https://api.topcoder-dev.com',
@@ -112,9 +112,9 @@ describe('reports directory with the shared Topcoder authenticator', () => {
     expect(directory).toHaveBeenCalledTimes(2);
   });
 
-  it('still accepts legacy HS256 administrators on the same deployment', async () => {
+  it('rejects shared-secret administrator tokens in public-key-only mode', async () => {
     const token = jwt.sign(
-      { userId: '12345', roles: ['Administrator'] },
+      { userId: '12345', emailVerified: true, roles: ['Administrator'] },
       testSecret,
       {
         algorithm: 'HS256',
@@ -125,7 +125,7 @@ describe('reports directory with the shared Topcoder authenticator', () => {
     await request(app.getHttpServer())
       .get('/v6/forms/reports/directory')
       .auth(token, { type: 'bearer' })
-      .expect(200);
+      .expect(401);
   });
 
   it.each([

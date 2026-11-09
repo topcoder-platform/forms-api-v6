@@ -165,7 +165,8 @@ describe('definition and deployment policies', () => {
         DATABASE_URL: 'postgresql://localhost/topcoder-services?schema=public',
       }),
     ).toThrow();
-    expect(() => readConfig({ ...env, AUTH_SECRET: '' })).toThrow();
+    expect(readConfig({ ...env, AUTH_SECRET: '' }).authSecret).toBeUndefined();
+    expect(() => readConfig({ ...env, AUTH_SECRET: 'short' })).toThrow();
     expect(
       readConfig({ ...env, VALID_ISSUERS: '["https://forms.test"]' }).issuers,
     ).toEqual(['https://forms.test']);

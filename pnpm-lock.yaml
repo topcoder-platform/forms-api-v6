@@ -82,8 +82,8 @@ importers:
         specifier: 7.8.2
         version: 7.8.2
       tc-core-library-js:
-        specifier: https://codeload.github.com/topcoder-platform/tc-core-library-js/tar.gz/58de37670180e183e8378c3d203df0112a0414f6
-        version: https://codeload.github.com/topcoder-platform/tc-core-library-js/tar.gz/58de37670180e183e8378c3d203df0112a0414f6(supports-color@7.2.0)
+        specifier: https://codeload.github.com/topcoder-platform/tc-core-library-js/tar.gz/c7c8fab502b7152dd06b1ce46cdb703e0e13b357
+        version: https://codeload.github.com/topcoder-platform/tc-core-library-js/tar.gz/c7c8fab502b7152dd06b1ce46cdb703e0e13b357(supports-color@7.2.0)
     devDependencies:
       '@eslint/js':
         specifier: 9.39.2
@@ -2647,9 +2647,9 @@ packages:
   swagger-ui-dist@5.32.8:
     resolution: {integrity: sha512-dgMdWXIgnI4zX4OPhKEdWnlDODbgm8W3AX0Ivn/BBqcUh6xZsBxhZMnvk6DJyRz1BTrj8dPxtarmEGgkz30oyA==}
 
-  tc-core-library-js@https://codeload.github.com/topcoder-platform/tc-core-library-js/tar.gz/58de37670180e183e8378c3d203df0112a0414f6:
-    resolution: {tarball: https://codeload.github.com/topcoder-platform/tc-core-library-js/tar.gz/58de37670180e183e8378c3d203df0112a0414f6}
-    version: 4.0.0-rc.2
+  tc-core-library-js@https://codeload.github.com/topcoder-platform/tc-core-library-js/tar.gz/c7c8fab502b7152dd06b1ce46cdb703e0e13b357:
+    resolution: {tarball: https://codeload.github.com/topcoder-platform/tc-core-library-js/tar.gz/c7c8fab502b7152dd06b1ce46cdb703e0e13b357}
+    version: 4.0.0-rc.4
     engines: {node: '>=22.13'}
 
   thread-stream@3.2.0:
@@ -5452,7 +5452,7 @@ snapshots:
     dependencies:
       '@scarf/scarf': 1.4.0
 
-  tc-core-library-js@https://codeload.github.com/topcoder-platform/tc-core-library-js/tar.gz/58de37670180e183e8378c3d203df0112a0414f6(supports-color@7.2.0):
+  tc-core-library-js@https://codeload.github.com/topcoder-platform/tc-core-library-js/tar.gz/c7c8fab502b7152dd06b1ce46cdb703e0e13b357(supports-color@7.2.0):
     dependencies:
       '@types/jsonwebtoken': 9.0.10
       jsonwebtoken: 9.0.3
