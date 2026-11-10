@@ -133,9 +133,9 @@ def release(aws, m, publisher, release_tag):
     response = aws.call('ecs', 'describe-task-definition', taskDefinition=previous['taskDefinition'], include=['TAGS'])
     task, tags = response['taskDefinition'], response.get('tags', [])
     migration_request(m, task, tags, 'preflight@sha256:' + '0' * 64)
-    deadline = time.monotonic() + 900
-    runtime = publisher.publish('forms-api-v6', 'forms-api-v6:candidate', release_tag, deadline)
-    migration = publisher.publish('forms-api-v6', 'forms-api-v6:migrate-candidate', release_tag + '-migrate', deadline)
+    # Each image gets its own scan budget after upload and digest verification.
+    runtime = publisher.publish('forms-api-v6', 'forms-api-v6:candidate', release_tag)
+    migration = publisher.publish('forms-api-v6', 'forms-api-v6:migrate-candidate', release_tag + '-migrate')
     d.require(initial_stable(read_service(aws, m), previous['taskDefinition']), 'Service changed during image publication')
     migration_task = migrate(aws, m, previous, task, tags, migration)
     definition = promote(aws, m, previous, task, tags, runtime)
