@@ -29,6 +29,7 @@ async function authenticate(
   const { SignJWT } = await import('jose');
   const now = Math.floor(Date.now() / 1000);
   const jwt = await new SignJWT({
+    emailVerified: true,
     userId: '12345',
     roles: ['Administrator'],
     iss: 'https://api.topcoder-dev.com',
