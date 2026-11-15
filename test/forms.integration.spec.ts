@@ -1396,7 +1396,7 @@ describe('forms API with real PostgreSQL', () => {
         algorithm: 'HS384',
       },
     ]) {
-      const bad = await new SignJWT(claims)
+      const bad = await new SignJWT({ emailVerified: true, ...claims })
         .setProtectedHeader({ alg: settings.algorithm })
         .setSubject('test-user')
         .setIssuer(settings.issuer)

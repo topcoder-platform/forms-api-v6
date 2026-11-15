@@ -32,6 +32,7 @@ function browserToken(
 ) {
   const now = Math.floor(Date.now() / 1000);
   const payload = {
+    emailVerified: true,
     [`${namespace}roles`]: ['administrator', 'Topcoder User'],
     [`${namespace}userId`]: '12345',
     iss: issuer,
@@ -114,7 +115,7 @@ describe('reports directory with the shared Topcoder authenticator', () => {
 
   it('still accepts legacy HS256 administrators on the same deployment', async () => {
     const token = jwt.sign(
-      { userId: '12345', roles: ['Administrator'] },
+      { emailVerified: true, userId: '12345', roles: ['Administrator'] },
       testSecret,
       {
         algorithm: 'HS256',
@@ -129,6 +130,9 @@ describe('reports directory with the shared Topcoder authenticator', () => {
   });
 
   it.each([
+    { emailVerified: undefined },
+    { emailVerified: false },
+    { emailVerified: 'true' },
     { exp: 1 },
     { iss: 'https://untrusted.example/' },
     { exp: undefined },
@@ -159,6 +163,7 @@ describe('reports directory with the shared Topcoder authenticator', () => {
 
   it('authorizes an RS256 machine by scopes rather than administrator roles', async () => {
     const machine = {
+      emailVerified: undefined,
       sub: 'client@clients',
       gty: 'client-credentials',
       azp: 'client',
