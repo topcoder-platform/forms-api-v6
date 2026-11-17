@@ -1,4 +1,4 @@
-ARG NODE_VERSION=26.12.1
+ARG NODE_VERSION=26.13.1
 FROM node:${NODE_VERSION}-alpine AS dependencies
 RUN apk add --no-cache openssl ca-certificates \
     && npm install --global pnpm@11.21.0
@@ -21,7 +21,7 @@ ARG NODE_VERSION
 ENV NODE_ENV=production
 WORKDIR /app
 RUN apk upgrade --no-cache \
-    && apk add --no-cache openssl ca-certificates "nodejs-current~${NODE_VERSION%%.*}" \
+    && apk add --no-cache openssl ca-certificates "nodejs-current~${NODE_VERSION%%.*}" "nodejs-current>=26.13.1-r0" "zlib>=1.4-r0" \
     && addgroup -S -g 10001 app \
     && adduser -S -D -u 10001 -G app app
 COPY deploy/certs/us-east-1-bundle.pem /app/deploy/certs/us-east-1-bundle.pem
