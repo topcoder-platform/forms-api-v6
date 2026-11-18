@@ -1,3 +1,6 @@
+packages:
+  - deploy/migrate
+
 allowBuilds:
   '@prisma/engines': true
   '@swc/core': true
