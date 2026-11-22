@@ -12,6 +12,7 @@ allowBuilds:
 blockExoticSubdeps: false
 
 overrides:
+  'effect@^3': 3.22.1
   body-parser@^2: 2.4.0
   proxy-addr: 2.0.8
   qs: 6.16.1
