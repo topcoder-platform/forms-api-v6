@@ -11,6 +11,12 @@ allowBuilds:
 # The shared Bus API wrapper depends on Topcoder's Git-hosted core library.
 blockExoticSubdeps: false
 
+minimumReleaseAgeExclude:
+  - '@nestjs/common@12.6.3'
+  - '@nestjs/core@12.6.3'
+  - '@nestjs/platform-express@12.6.3'
+  - '@nestjs/testing@12.6.3'
+
 overrides:
   'effect@^3': 3.22.1
   body-parser@^2: 2.4.0

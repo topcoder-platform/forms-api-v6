@@ -28,7 +28,7 @@ ARG NODE_VERSION
 ENV NODE_ENV=production
 WORKDIR /app
 RUN apk upgrade --no-cache \
-    && apk add --no-cache 'libcrypto3>=3.5.9-r1' 'libssl3>=3.5.9-r1' openssl ca-certificates "nodejs-current~${NODE_VERSION%%.*}" "nodejs-current>=26.13.1-r0" "zlib>=1.4-r0" \
+    && apk add --no-cache 'libcrypto3>=3.5.9-r1' 'libssl3>=3.5.9-r1' openssl ca-certificates 'nodejs-current~26.13.1' "zlib>=1.4-r0" \
     && addgroup -S -g 10001 app \
     && adduser -S -D -u 10001 -G app app
 COPY deploy/certs/us-east-1-bundle.pem /app/deploy/certs/us-east-1-bundle.pem
